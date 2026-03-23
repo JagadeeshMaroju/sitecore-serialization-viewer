@@ -1,0 +1,151 @@
+{
+  "name": "sitecore-serialization-viewer",
+  "displayName": "Sitecore Serialization Viewer",
+  "description": "Visualize Sitecore CLI serialization changes with detailed field-level diffs",
+  "version": "1.0.0",
+  "publisher": "JagadheeshMaroju",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "sitecore",
+    "serialization",
+    "yaml",
+    "diff",
+    "xm-cloud"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.module.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sitecoreSerializer.viewChanges",
+        "title": "View Serialization Changes",
+        "category": "Sitecore",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "sitecoreSerializer.previewPull",
+        "title": "Preview Pull Changes",
+        "category": "Sitecore",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "sitecoreSerializer.previewPush",
+        "title": "Preview Push Changes",
+        "category": "Sitecore",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "sitecoreSerializer.refreshView",
+        "title": "Refresh Serialization View",
+        "category": "Sitecore",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sitecoreSerializer.showItemDetails",
+        "title": "Show Item Details",
+        "category": "Sitecore"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sitecore-serialization",
+          "title": "Sitecore Serialization",
+          "icon": "$(database)"
+        }
+      ]
+    },
+    "views": {
+      "sitecore-serialization": [
+        {
+          "id": "sitecoreChangesView",
+          "name": "Changes Overview",
+          "icon": "$(diff)",
+          "contextualTitle": "Sitecore Serialization"
+        },
+        {
+          "id": "sitecoreStatsView",
+          "name": "Statistics",
+          "icon": "$(graph)"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "sitecoreSerializer.refreshView",
+          "when": "view == sitecoreChangesView",
+          "group": "navigation"
+        },
+        {
+          "command": "sitecoreSerializer.previewPull",
+          "when": "view == sitecoreChangesView",
+          "group": "navigation"
+        },
+        {
+          "command": "sitecoreSerializer.previewPush",
+          "when": "view == sitecoreChangesView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sitecoreSerializer.showItemDetails",
+          "when": "view == sitecoreChangesView && viewItem == sitecoreItem"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Sitecore Serialization Viewer",
+      "properties": {
+        "sitecoreSerializer.serializationPath": {
+          "type": "string",
+          "default": "Serialization",
+          "description": "Path to the Sitecore serialization folder"
+        },
+        "sitecoreSerializer.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh when serialization files change"
+        },
+        "sitecoreSerializer.showFieldIDs": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show field IDs in addition to field names"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/yaml": "^1.9.7",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "yaml": "^2.3.4",
+    "simple-git": "^3.22.0"
+  }
+}

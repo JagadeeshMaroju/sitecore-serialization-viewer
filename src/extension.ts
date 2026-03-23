@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { ChangesTreeProvider, FieldContentProvider } from './providers/changesTreeProvider';
 import { StatsTreeProvider } from './providers/statsTreeProvider';
+import { ConnectionViewProvider } from './providers/connectionViewProvider';
 import { SerializationAnalyzer } from './services/serializationAnalyzer';
 import { SitecoreCLI } from './services/sitecoreCLI';
 import { ItemDetailPanel } from './panels/itemDetailPanel';
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     // Create dedicated output channel for logging
     const outputChannel = vscode.window.createOutputChannel('Sitecore Serialization');
     context.subscriptions.push(outputChannel);
@@ -42,9 +43,42 @@ export function activate(context: vscode.ExtensionContext) {
         log(`  Serialization path: ${analyzer.getSerializationPath()}`);
         log('');
 
+        // Auto-detect Sitecore host from CLI config if the setting is not already set
+        const config = vscode.workspace.getConfiguration('sitecoreSerializer');
+        const existingHost = config.get<string>('sitecoreHost') || '';
+        if (!existingHost) {
+            const detectedHost = sitecoreCLI.detectHost();
+            if (detectedHost) {
+                log(`🔌 Auto-detected Sitecore host: ${detectedHost}`);
+                await config.update('sitecoreHost', detectedHost, vscode.ConfigurationTarget.Workspace);
+            } else {
+                log('🔌 No existing Sitecore host found in CLI config files');
+            }
+        } else {
+            log(`🔌 Sitecore host already configured: ${existingHost}`);
+        }
+
     // Register tree data providers
     vscode.window.registerTreeDataProvider('sitecoreChangesView', changesProvider);
     vscode.window.registerTreeDataProvider('sitecoreStatsView', statsProvider);
+
+    // Register the connection webview view provider
+    const connectionProvider = new ConnectionViewProvider(context.extensionUri, sitecoreCLI);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            ConnectionViewProvider.viewType,
+            connectionProvider
+        )
+    );
+
+    // Refresh the connection view when the host setting changes externally
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('sitecoreSerializer.sitecoreHost')) {
+                connectionProvider.refresh();
+            }
+        })
+    );
 
     // Register virtual document provider for field diffs
     context.subscriptions.push(
@@ -56,6 +90,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register commands
     log('📝 Registering commands...');
+    context.subscriptions.push(
+        vscode.commands.registerCommand('sitecoreSerializer.connect', async () => {
+            log('🔌 Command: connect - Opening connection view...');
+            // Reveal the connection view in the sidebar
+            await vscode.commands.executeCommand('sitecoreConnectionView.focus');
+        })
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand('sitecoreSerializer.viewChanges', async () => {
             log('🔄 Command: viewChanges - Starting analysis...');
@@ -123,7 +165,8 @@ export function activate(context: vscode.ExtensionContext) {
                     // Update tree view and stats with Sitecore changes
                     changesProvider.refreshForPullPreview(changes);
                     statsProvider.refreshWithCliData('Pull Preview', creates, updates, deletes, changes);
-                    
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode', 'pull');
+
                     if (creates + updates + deletes === 0) {
                         log('  ✅ No changes detected');
                         vscode.window.showInformationMessage(
@@ -132,45 +175,28 @@ export function activate(context: vscode.ExtensionContext) {
                     } else {
                         const hasLocalChanges = (await analyzer.analyzeChanges()).totalChanges > 0;
                         log(`  Local changes detected: ${hasLocalChanges}`);
-                        
-                        let warningMsg = '';
-                        if (hasLocalChanges) {
-                            warningMsg = '\n\n⚠️ WARNING: You have uncommitted local changes!\n' +
-                                'Pulling will overwrite your local files.\n' +
-                            'Consider committing or stashing first.';
-                    }
-                    
-                    const message = `📥 Sitecore Has Changes (showing in sidebar):\n\n` +
-                        `  • ${creates} item(s) will be CREATED locally\n` +
-                        `  • ${updates} item(s) will be UPDATED locally\n` +
-                        `  • ${deletes} item(s) will be DELETED locally` +
-                        (skips > 0 ? `\n  • ${skips} item(s) will be SKIPPED` : '') +
-                        warningMsg;
-                    
-                    // Don't await - let it show and dismiss naturally
-                    vscode.window.showInformationMessage(
-                        message,
-                        ...(hasLocalChanges 
-                            ? ['Show CLI Output', 'Copy Pull Command', 'Show My Local Changes']
-                            : ['Show CLI Output', 'Copy Pull Command']
-                        )
-                    ).then(async action => {
-                        if (action === 'Show CLI Output') {
-                            const doc = await vscode.workspace.openTextDocument({
-                                content: result.output,
-                                language: 'log'
+
+                        const warningMsg = hasLocalChanges
+                            ? '\n\n⚠️ You have uncommitted local changes — pulling will overwrite them.'
+                            : '';
+
+                        const message = `📥 Pull Preview (see sidebar for details):\n\n` +
+                            `  • ${creates} item(s) will be CREATED locally\n` +
+                            `  • ${updates} item(s) will be UPDATED locally\n` +
+                            `  • ${deletes} item(s) will be DELETED locally` +
+                            (skips > 0 ? `\n  • ${skips} item(s) will be SKIPPED` : '') +
+                            warningMsg;
+
+                        vscode.window.showInformationMessage(message, 'Pull Now', 'Show CLI Output')
+                            .then(async action => {
+                                if (action === 'Pull Now') {
+                                    await vscode.commands.executeCommand('sitecoreSerializer.executePull');
+                                } else if (action === 'Show CLI Output') {
+                                    const doc = await vscode.workspace.openTextDocument({ content: result.output, language: 'log' });
+                                    await vscode.window.showTextDocument(doc);
+                                }
                             });
-                            await vscode.window.showTextDocument(doc);
-                        } else if (action === 'Copy Pull Command') {
-                            await vscode.env.clipboard.writeText('dotnet sitecore ser pull');
-                            vscode.window.showInformationMessage('📋 Command copied to clipboard!');
-                        } else if (action === 'Show My Local Changes') {
-                            await analyzer.analyzeChanges();
-                            changesProvider.refresh();
-                            statsProvider.refresh();
-                        }
-                    });
-                }
+                    }
                 } catch (error) {
                     log(`❌ Command: previewPull - Failed: ${error}`);
                     console.error('❌ Command: previewPull - Failed:', error);
@@ -232,38 +258,31 @@ export function activate(context: vscode.ExtensionContext) {
                     // Update tree view and stats with Sitecore CLI changes
                     changesProvider.refreshForPushPreview(changes);
                     statsProvider.refreshWithCliData('Push Preview', creates, updates, deletes, changes);
-                    
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode', 'push');
+
                     log('✅ Command: previewPush - Completed');
-                    
+
                     if (creates + updates + deletes === 0) {
                         log('  ✅ No changes detected');
                         vscode.window.showInformationMessage(
                             '✅ No changes to push. All items are synchronized with Sitecore.'
                         );
                     } else {
-                        const message = `📤 Sitecore CLI Reports (showing in sidebar):\n\n` +
+                        const message = `📤 Push Preview (see sidebar for details):\n\n` +
                             `  • ${creates} item(s) will be CREATED in Sitecore\n` +
                             `  • ${updates} item(s) will be UPDATED in Sitecore\n` +
                             `  • ${deletes} item(s) will be DELETED from Sitecore` +
                             (skips > 0 ? `\n  • ${skips} item(s) will be SKIPPED` : '');
-                        
-                        // Don't await - let it show and dismiss naturally
-                        vscode.window.showInformationMessage(
-                            message,
-                            'Show CLI Output',
-                            'Copy Push Command',
-                            'Dismiss'
-                        ).then(action => {
-                            if (action === 'Show CLI Output') {
-                                vscode.workspace.openTextDocument({
-                                    content: result.output,
-                                    language: 'log'
-                                }).then(doc => vscode.window.showTextDocument(doc));
-                            } else if (action === 'Copy Push Command') {
-                                vscode.env.clipboard.writeText('dotnet sitecore ser push');
-                                vscode.window.showInformationMessage('📋 Command copied to clipboard!');
-                            }
-                        });
+
+                        vscode.window.showInformationMessage(message, 'Push Now', 'Show CLI Output')
+                            .then(async action => {
+                                if (action === 'Push Now') {
+                                    await vscode.commands.executeCommand('sitecoreSerializer.executePush');
+                                } else if (action === 'Show CLI Output') {
+                                    const doc = await vscode.workspace.openTextDocument({ content: result.output, language: 'log' });
+                                    await vscode.window.showTextDocument(doc);
+                                }
+                            });
                     }
                 } catch (error) {
                     log(`❌ Command: previewPush - Failed: ${error}`);
@@ -275,8 +294,157 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('sitecoreSerializer.validate', async () => {
+            log('🔍 Command: validate - Starting...');
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Serialization Validation',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Validating serialization...' });
+                try {
+                    const result = await sitecoreCLI.validate();
+                    log(`  Validate: ${result.errorCount} error(s), ${result.warningCount} warning(s)`);
+                    if (result.output) { log(result.output); }
+
+                    changesProvider.refreshForValidation(result.issues);
+                    statsProvider.refreshWithValidationData(result.errorCount, result.warningCount);
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode',
+                        result.errorCount > 0 ? 'validate-errors' : 'validate');
+
+                    if (result.errorCount === 0 && result.warningCount === 0) {
+                        vscode.window.showInformationMessage('✅ Serialization is valid — no issues found.');
+                    } else {
+                        const summary = `Validation: ${result.errorCount} error(s), ${result.warningCount} warning(s) — see sidebar for details.`;
+                        const buttons: string[] = result.errorCount > 0
+                            ? ['Fix Validations', 'Show Output']
+                            : ['Show Output'];
+                        vscode.window.showWarningMessage(summary, ...buttons).then(async action => {
+                            if (action === 'Fix Validations') {
+                                await vscode.commands.executeCommand('sitecoreSerializer.validateFix');
+                            } else if (action === 'Show Output') {
+                                const doc = await vscode.workspace.openTextDocument({ content: result.output, language: 'log' });
+                                await vscode.window.showTextDocument(doc);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    log(`❌ Command: validate - Failed: ${error}`);
+                    vscode.window.showErrorMessage(`Validation failed: ${error}`);
+                }
+            });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('sitecoreSerializer.validateFix', async () => {
+            log('🔧 Command: validateFix - Starting...');
+            const confirm = await vscode.window.showWarningMessage(
+                'This will attempt to auto-fix serialization validation errors. Continue?',
+                { modal: true },
+                'Fix Now'
+            );
+            if (confirm !== 'Fix Now') { return; }
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Serialization Fix',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Fixing validation errors...' });
+                try {
+                    const result = await sitecoreCLI.validateFix();
+                    log(`  ValidateFix: ${result.errorCount} error(s) remaining, ${result.warningCount} warning(s)`);
+                    if (result.output) { log(result.output); }
+
+                    changesProvider.refreshForValidation(result.issues);
+                    statsProvider.refreshWithValidationData(result.errorCount, result.warningCount);
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode',
+                        result.errorCount > 0 ? 'validate-errors' : 'validate');
+
+                    if (result.errorCount === 0) {
+                        vscode.window.showInformationMessage('✅ All validation errors fixed!');
+                    } else {
+                        vscode.window.showWarningMessage(`${result.errorCount} error(s) could not be fixed automatically.`);
+                    }
+                } catch (error) {
+                    log(`❌ Command: validateFix - Failed: ${error}`);
+                    vscode.window.showErrorMessage(`Validate fix failed: ${error}`);
+                }
+            });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('sitecoreSerializer.executePull', async () => {
+            log('📥 Command: executePull - Starting...');
+            const confirm = await vscode.window.showWarningMessage(
+                'This will pull all changes from Sitecore and overwrite your local serialization files. Continue?',
+                { modal: true },
+                'Pull Now'
+            );
+            if (confirm !== 'Pull Now') { return; }
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Pull',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Pulling from Sitecore...' });
+                const result = await sitecoreCLI.pull();
+                log(`  Pull result: success=${result.success}`);
+                if (result.output) { log(result.output); }
+
+                if (result.success) {
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode', '');
+                    await analyzer.analyzeChanges();
+                    changesProvider.refresh();
+                    statsProvider.refresh();
+                    vscode.window.showInformationMessage('✅ Pull completed successfully!');
+                } else {
+                    vscode.window.showErrorMessage(`Pull failed: ${result.error || 'Unknown error'}`);
+                }
+            });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('sitecoreSerializer.executePush', async () => {
+            log('📤 Command: executePush - Starting...');
+            const confirm = await vscode.window.showWarningMessage(
+                'This will push your local serialization files to Sitecore. Continue?',
+                { modal: true },
+                'Push Now'
+            );
+            if (confirm !== 'Push Now') { return; }
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Push',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Pushing to Sitecore...' });
+                const result = await sitecoreCLI.push();
+                log(`  Push result: success=${result.success}`);
+                if (result.output) { log(result.output); }
+
+                if (result.success) {
+                    await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode', '');
+                    await analyzer.analyzeChanges();
+                    changesProvider.refresh();
+                    statsProvider.refresh();
+                    vscode.window.showInformationMessage('✅ Push completed successfully!');
+                } else {
+                    vscode.window.showErrorMessage(`Push failed: ${result.error || 'Unknown error'}`);
+                }
+            });
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('sitecoreSerializer.refreshView', async () => {
             log('🔄 Command: refreshView - Refreshing...');
+            await vscode.commands.executeCommand('setContext', 'sitecoreSerializer.previewMode', '');
             await analyzer.analyzeChanges();
             changesProvider.refresh();
             statsProvider.refresh();
@@ -291,8 +459,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Auto-refresh on file changes
-    const config = vscode.workspace.getConfiguration('sitecoreSerializer');
-    const autoRefresh = config.get<boolean>('autoRefresh');
+    const autoRefresh = vscode.workspace.getConfiguration('sitecoreSerializer').get<boolean>('autoRefresh');
     log(`⚙️  Auto-refresh: ${autoRefresh ? 'enabled' : 'disabled'}`);
     
     if (autoRefresh) {

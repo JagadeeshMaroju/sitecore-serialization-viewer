@@ -1,8 +1,25 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
 const execAsync = promisify(exec);
+
+export interface ValidateResult {
+    success: boolean;
+    output: string;
+    error?: string;
+    issues: ValidationIssue[];
+    errorCount: number;
+    warningCount: number;
+}
+
+export interface ValidationIssue {
+    severity: 'Error' | 'Warning' | 'Info';
+    itemPath: string;
+    message: string;
+}
 
 export interface WhatIfResult {
     success: boolean;
@@ -64,6 +81,101 @@ export class SitecoreCLI {
     }
 
     /**
+     * Auto-detect the Sitecore CM host from the CLI config files in the workspace.
+     * Scans .sitecore/ directory and sitecore.json for any HTTP(S) endpoint URL.
+     */
+    public detectHost(): string | null {
+        const candidates = [
+            path.join(this.workspaceRoot, '.sitecore', 'user.json'),
+            path.join(this.workspaceRoot, 'sitecore.json'),
+        ];
+
+        // Read explicit candidate files first
+        for (const filePath of candidates) {
+            try {
+                const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const url = this._findUrlInObject(json);
+                if (url) { return url; }
+            } catch { /* file missing or invalid JSON – skip */ }
+        }
+
+        // Scan all JSON files inside .sitecore/ (environments, etc.)
+        try {
+            const sitecoreDir = path.join(this.workspaceRoot, '.sitecore');
+            for (const file of fs.readdirSync(sitecoreDir)) {
+                if (!file.endsWith('.json')) { continue; }
+                const filePath = path.join(sitecoreDir, file);
+                try {
+                    const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                    const url = this._findUrlInObject(json);
+                    if (url) { return url; }
+                } catch { /* skip */ }
+            }
+        } catch { /* .sitecore dir doesn't exist – skip */ }
+
+        return null;
+    }
+
+    /** Recursively walk a parsed JSON object and return the first http(s) URL found. */
+    private _findUrlInObject(obj: unknown, depth = 0): string | null {
+        if (depth > 6) { return null; }
+        if (typeof obj === 'string') {
+            const trimmed = obj.trim();
+            if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+                return trimmed.replace(/\/$/, '');
+            }
+        }
+        if (obj && typeof obj === 'object') {
+            for (const val of Object.values(obj)) {
+                const found = this._findUrlInObject(val, depth + 1);
+                if (found) { return found; }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Connect to a specific Sitecore CM host and authenticate.
+     * @param cmHost  The CM (Content Management) host URL
+     * @param authority  The Identity Server / authority URL. Defaults to cmHost when omitted.
+     */
+    public async connectToHost(cmHost: string, authority?: string): Promise<{ success: boolean; error?: string }> {
+        const authorityUrl = (authority && authority.trim()) ? authority.trim() : cmHost;
+        const command = `dotnet sitecore login --authority ${authorityUrl} --cm ${cmHost} --allow-write true`;
+
+        try {
+            return await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Connection',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: `Connecting to ${cmHost}...` });
+                console.log(`[SitecoreCLI] connectToHost: ${command}`);
+
+                const { stdout, stderr } = await execAsync(command, {
+                    cwd: this.workspaceRoot,
+                    timeout: 300000 // 5 minutes for browser-based auth
+                });
+
+                console.log(`[SitecoreCLI] connectToHost output: ${stdout}${stderr || ''}`);
+                vscode.window.showInformationMessage(`✅ Connected to ${cmHost}!`);
+                return { success: true };
+            });
+        } catch (error: any) {
+            const errorOutput = (error.stdout || '') + (error.stderr || '') + (error.message || '');
+            console.error(`[SitecoreCLI] connectToHost failed:`, errorOutput);
+
+            if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
+                return { success: false, error: 'Connection timed out. Please try again.' };
+            }
+
+            // Surface the CLI error message so the user knows what went wrong
+            const cliError = errorOutput.trim() || error.message || 'Unknown error';
+            return { success: false, error: cliError };
+        }
+    }
+
+    /**
      * Prompt user to login and execute login command
      */
     public async login(): Promise<{ success: boolean; error?: string }> {
@@ -88,14 +200,21 @@ export class SitecoreCLI {
             }, async (progress) => {
                 progress.report({ message: "Opening browser for authentication..." });
 
-                const { stdout, stderr } = await execAsync('dotnet sitecore login', {
+                // Use the configured host/authority if available
+                const cfg = vscode.workspace.getConfiguration('sitecoreSerializer');
+                const savedHost = cfg.get<string>('sitecoreHost') || '';
+                const savedAuthority = cfg.get<string>('sitecoreAuthority') || '';
+                const loginCmd = savedHost
+                    ? `dotnet sitecore login --authority ${savedAuthority || savedHost} --cm ${savedHost} --allow-write true`
+                    : 'dotnet sitecore login';
+
+                const { stdout, stderr } = await execAsync(loginCmd, {
                     cwd: this.workspaceRoot,
                     timeout: 120000 // 2 minutes timeout
                 });
 
                 const output = stdout + (stderr || '');
 
-                // Check if login was successful
                 if (output.includes('successfully') || 
                     output.includes('authenticated') ||
                     output.includes('logged in')) {
@@ -439,27 +558,96 @@ export class SitecoreCLI {
     }
 
     /**
-     * Execute regular push (not what-if)
+     * Execute real pull (no --what-if)
+     */
+    public async pull(): Promise<{ success: boolean; output: string; error?: string }> {
+        return this.executeWithAuth('dotnet sitecore ser pull', 'Pull');
+    }
+
+    /**
+     * Execute real push (no --what-if)
      */
     public async push(): Promise<{ success: boolean; output: string; error?: string }> {
-        try {
-            const command = 'dotnet sitecore ser push';
-            
-            const { stdout, stderr } = await execAsync(command, {
-                cwd: this.workspaceRoot,
-                maxBuffer: 1024 * 1024 * 10
-            });
+        return this.executeWithAuth('dotnet sitecore ser push', 'Push');
+    }
 
-            return {
-                success: true,
-                output: stdout + (stderr || '')
-            };
+    /**
+     * Run dotnet sitecore ser validate
+     */
+    public async validate(): Promise<ValidateResult> {
+        const result = await this.executeWithAuth('dotnet sitecore ser validate', 'Validate');
+        return this._buildValidateResult(result);
+    }
+
+    /**
+     * Run dotnet sitecore ser validate --fix
+     */
+    public async validateFix(): Promise<ValidateResult> {
+        const result = await this.executeWithAuth('dotnet sitecore ser validate --fix', 'Validate Fix');
+        return this._buildValidateResult(result);
+    }
+
+    private _buildValidateResult(result: { success: boolean; output: string; error?: string }): ValidateResult {
+        const issues      = this._parseValidateOutput(result.output);
+        const errorCount  = issues.filter(i => i.severity === 'Error').length;
+        const warningCount = issues.filter(i => i.severity === 'Warning').length;
+        return { ...result, issues, errorCount, warningCount };
+    }
+
+    private _parseValidateOutput(output: string): ValidationIssue[] {
+        const issues: ValidationIssue[] = [];
+        for (const line of output.split('\n')) {
+            const t = line.trim();
+            if (!t) { continue; }
+
+            let severity: 'Error' | 'Warning' | 'Info' | null = null;
+
+            if (/\[E(rror)?\]/i.test(t) || /\berror\b/i.test(t)) {
+                // Skip summary lines like "Errors: 3"
+                if (/^\s*errors?\s*:\s*\d+/i.test(t)) { continue; }
+                severity = 'Error';
+            } else if (/\[W(arning)?\]/i.test(t) || /\bwarning\b/i.test(t)) {
+                if (/^\s*warnings?\s*:\s*\d+/i.test(t)) { continue; }
+                severity = 'Warning';
+            } else if (/\[I(nfo)?\]/i.test(t)) {
+                severity = 'Info';
+            }
+
+            if (!severity) { continue; }
+
+            const pathMatch = t.match(/\/sitecore\/\S+/);
+            const itemPath  = pathMatch ? pathMatch[0].replace(/[,.:'"]+$/, '') : 'Unknown';
+            const message   = t.replace(/^\[.*?\]\s*/, '').trim();
+            issues.push({ severity, itemPath, message });
+        }
+        return issues;
+    }
+
+    /**
+     * Authenticate with Sitecore Cloud (XM Cloud) via browser
+     */
+    public async cloudLogin(): Promise<{ success: boolean; error?: string }> {
+        try {
+            return await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Sitecore Cloud Login',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Opening browser for Sitecore Cloud authentication...' });
+                console.log('[SitecoreCLI] cloudLogin: dotnet sitecore cloud login');
+
+                await execAsync('dotnet sitecore cloud login', {
+                    cwd: this.workspaceRoot,
+                    timeout: 300000
+                });
+
+                vscode.window.showInformationMessage('✅ Connected to Sitecore Cloud!');
+                return { success: true };
+            });
         } catch (error: any) {
-            return {
-                success: false,
-                output: error.stdout + (error.stderr || ''),
-                error: error.message
-            };
+            const msg = (error.stdout || '') + (error.stderr || '') + (error.message || '');
+            console.error('[SitecoreCLI] cloudLogin failed:', msg);
+            return { success: false, error: error.message || 'Unknown error' };
         }
     }
 }

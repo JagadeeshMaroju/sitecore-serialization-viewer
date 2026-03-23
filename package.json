@@ -25,6 +25,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "sitecoreSerializer.connect",
+        "title": "Connect to Sitecore",
+        "category": "Sitecore",
+        "icon": "$(plug)"
+      },
+      {
         "command": "sitecoreSerializer.viewChanges",
         "title": "View Serialization Changes",
         "category": "Sitecore",
@@ -49,6 +55,30 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "sitecoreSerializer.validate",
+        "title": "Validate Serialization",
+        "category": "Sitecore",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "sitecoreSerializer.validateFix",
+        "title": "Fix Validation Errors",
+        "category": "Sitecore",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "sitecoreSerializer.executePull",
+        "title": "Pull Now",
+        "category": "Sitecore",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "sitecoreSerializer.executePush",
+        "title": "Push Now",
+        "category": "Sitecore",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "sitecoreSerializer.showItemDetails",
         "title": "Show Item Details",
         "category": "Sitecore"
@@ -66,6 +96,12 @@
     "views": {
       "sitecore-serialization": [
         {
+          "type": "webview",
+          "id": "sitecoreConnectionView",
+          "name": "Connection",
+          "icon": "$(plug)"
+        },
+        {
           "id": "sitecoreChangesView",
           "name": "Changes Overview",
           "icon": "$(diff)",
@@ -81,19 +117,44 @@
     "menus": {
       "view/title": [
         {
+          "command": "sitecoreSerializer.connect",
+          "when": "view == sitecoreConnectionView",
+          "group": "navigation"
+        },
+        {
+          "command": "sitecoreSerializer.executePull",
+          "when": "view == sitecoreChangesView && sitecoreSerializer.previewMode == 'pull'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sitecoreSerializer.executePush",
+          "when": "view == sitecoreChangesView && sitecoreSerializer.previewMode == 'push'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sitecoreSerializer.validateFix",
+          "when": "view == sitecoreChangesView && sitecoreSerializer.previewMode == 'validate-errors'",
+          "group": "navigation@1"
+        },
+        {
           "command": "sitecoreSerializer.refreshView",
           "when": "view == sitecoreChangesView",
-          "group": "navigation"
+          "group": "navigation@2"
+        },
+        {
+          "command": "sitecoreSerializer.validate",
+          "when": "view == sitecoreChangesView",
+          "group": "navigation@3"
         },
         {
           "command": "sitecoreSerializer.previewPull",
           "when": "view == sitecoreChangesView",
-          "group": "navigation"
+          "group": "navigation@4"
         },
         {
           "command": "sitecoreSerializer.previewPush",
           "when": "view == sitecoreChangesView",
-          "group": "navigation"
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
@@ -106,6 +167,22 @@
     "configuration": {
       "title": "Sitecore Serialization Viewer",
       "properties": {
+        "sitecoreSerializer.loginType": {
+          "type": "string",
+          "enum": ["identity", "cloud"],
+          "default": "identity",
+          "description": "Login method: 'identity' uses Sitecore Identity Server, 'cloud' uses dotnet sitecore cloud login."
+        },
+        "sitecoreSerializer.sitecoreHost": {
+          "type": "string",
+          "default": "",
+          "description": "Sitecore CM host URL (e.g. https://cm.your-site.com). Used for CLI authentication."
+        },
+        "sitecoreSerializer.sitecoreAuthority": {
+          "type": "string",
+          "default": "",
+          "description": "Sitecore Identity Server / authority URL. Defaults to the CM host when blank."
+        },
         "sitecoreSerializer.serializationPath": {
           "type": "string",
           "default": "Serialization",
@@ -143,6 +220,10 @@
     "eslint": "^8.54.0",
     "typescript": "^5.3.2",
     "@vscode/vsce": "^2.22.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JagadeeshMaroju/sitecore-serialization-viewer.git"
   },
   "dependencies": {
     "yaml": "^2.3.4",

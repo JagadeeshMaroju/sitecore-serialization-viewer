@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { SerializationAnalyzer } from '../services/serializationAnalyzer';
 import { ItemChange } from '../models/types';
+import { ValidationIssue } from '../services/sitecoreCLI';
 
 export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<TreeItem | undefined | null | void> = 
@@ -11,20 +12,35 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
     
     private isPushPreview: boolean = false;
     private isPullPreview: boolean = false;
+    private isValidation: boolean = false;
     private sitecoreChanges: any[] = [];
+    private validationIssues: ValidationIssue[] = [];
 
     constructor(private analyzer: SerializationAnalyzer) {}
 
     refresh(): void {
         this.isPushPreview = false;
         this.isPullPreview = false;
+        this.isValidation = false;
         this.sitecoreChanges = [];
+        this.validationIssues = [];
+        this._onDidChangeTreeData.fire();
+    }
+
+    refreshForValidation(issues: ValidationIssue[]): void {
+        this.isValidation = true;
+        this.isPullPreview = false;
+        this.isPushPreview = false;
+        this.sitecoreChanges = [];
+        this.validationIssues = issues;
         this._onDidChangeTreeData.fire();
     }
 
     refreshForPushPreview(sitecoreChanges?: any[]): void {
         this.isPushPreview = true;
         this.isPullPreview = false;
+        this.isValidation = false;
+        this.validationIssues = [];
         this.sitecoreChanges = sitecoreChanges || [];
         this._onDidChangeTreeData.fire();
     }
@@ -32,6 +48,8 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
     refreshForPullPreview(sitecoreChanges: any[]): void {
         this.isPullPreview = true;
         this.isPushPreview = false;
+        this.isValidation = false;
+        this.validationIssues = [];
         this.sitecoreChanges = sitecoreChanges;
         this._onDidChangeTreeData.fire();
     }
@@ -42,6 +60,30 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
 
     async getChildren(element?: TreeItem): Promise<TreeItem[]> {
         if (!element) {
+
+            // Validation mode
+            if (this.isValidation) {
+                const items: TreeItem[] = [];
+                if (this.validationIssues.length === 0) {
+                    items.push(new InfoTreeItem('✅ Serialization is valid — no issues found.', 'info'));
+                    return items;
+                }
+                items.push(new InfoTreeItem('🔍 Validation Results', 'info'));
+                const errors   = this.validationIssues.filter(i => i.severity === 'Error');
+                const warnings = this.validationIssues.filter(i => i.severity === 'Warning');
+                const infos    = this.validationIssues.filter(i => i.severity === 'Info');
+                if (errors.length > 0) {
+                    items.push(new ValidationCategoryTreeItem(`Errors (${errors.length})`, errors, 'error'));
+                }
+                if (warnings.length > 0) {
+                    items.push(new ValidationCategoryTreeItem(`Warnings (${warnings.length})`, warnings, 'warning'));
+                }
+                if (infos.length > 0) {
+                    items.push(new ValidationCategoryTreeItem(`Info (${infos.length})`, infos, 'info'));
+                }
+                return items;
+            }
+
             // Root level - show change type categories
             
             // If in Pull Preview mode, show Sitecore changes
@@ -166,6 +208,8 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
             // Show items in this category
             const items = this.analyzer.getChangesByType(element.changeType);
             return items.map(item => new ItemTreeItem(item));
+        } else if (element instanceof ValidationCategoryTreeItem) {
+            return element.issues.map(i => new ValidationIssueTreeItem(i));
         } else if (element instanceof SitecoreCategoryTreeItem) {
             // Show Sitecore changes
             return element.changes.map(change => new SitecoreItemTreeItem(change));
@@ -413,6 +457,44 @@ class FieldTreeItem extends TreeItem {
         tooltip.appendMarkdown(`\n**New Value:**\n\`\`\`\n${this.field.newValue || '(empty)'}\n\`\`\`\n`);
         
         return tooltip;
+    }
+}
+
+class ValidationCategoryTreeItem extends TreeItem {
+    constructor(
+        public readonly label: string,
+        public readonly issues: ValidationIssue[],
+        severity: 'error' | 'warning' | 'info'
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        const iconMap = { error: 'error', warning: 'warning', info: 'info' };
+        const colorMap = {
+            error:   new vscode.ThemeColor('notificationsErrorIcon.foreground'),
+            warning: new vscode.ThemeColor('notificationsWarningIcon.foreground'),
+            info:    new vscode.ThemeColor('notificationsInfoIcon.foreground'),
+        };
+        this.iconPath = new vscode.ThemeIcon(iconMap[severity], colorMap[severity]);
+        this.contextValue = 'validationCategory';
+    }
+}
+
+class ValidationIssueTreeItem extends TreeItem {
+    constructor(public readonly issue: ValidationIssue) {
+        super(issue.itemPath, vscode.TreeItemCollapsibleState.None);
+        this.description = issue.message;
+        this.tooltip = new vscode.MarkdownString(
+            `**${issue.severity}**\n\n` +
+            `**Path:** ${issue.itemPath}\n\n` +
+            `${issue.message}`
+        );
+        const iconMap: Record<string, string> = { Error: 'error', Warning: 'warning', Info: 'info' };
+        const colorMap: Record<string, vscode.ThemeColor> = {
+            Error:   new vscode.ThemeColor('notificationsErrorIcon.foreground'),
+            Warning: new vscode.ThemeColor('notificationsWarningIcon.foreground'),
+            Info:    new vscode.ThemeColor('notificationsInfoIcon.foreground'),
+        };
+        this.iconPath = new vscode.ThemeIcon(iconMap[issue.severity] || 'circle-outline', colorMap[issue.severity]);
+        this.contextValue = 'validationIssue';
     }
 }
 

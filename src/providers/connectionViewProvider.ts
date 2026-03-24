@@ -110,8 +110,8 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         const statusLabel    = isConnecting ? 'Connecting...' : isConnected ? (isCloud ? 'Connected (Cloud)' : 'Connected') : 'Not Connected';
         const dis            = isConnecting ? 'disabled' : '';
 
-        // Auto-suggest authority: replace //cm. with //id. in the CM host
-        const suggestedAuthority = savedHost.replace(/^(https?:\/\/)cm\./, '$1id.');
+        // Auto-suggest authority: replace //cm with //id in the CM host (handles cm., cm-, etc.)
+        const suggestedAuthority = savedHost.replace(/^(https?:\/\/)cm/, '$1id');
         const initialAuthority   = savedAuthority || (suggestedAuthority !== savedHost ? suggestedAuthority : '');
         const escInitialAuthority = esc(initialAuthority);
 
@@ -250,7 +250,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         }
 
         function suggestAuthority(cm) {
-            return cm.replace(/^(https?:\\/\\/)cm\\./, '$1id.');
+            return cm.replace(/^(https?:\\/\\/)cm/, '$1id');
         }
 
         function connect() {

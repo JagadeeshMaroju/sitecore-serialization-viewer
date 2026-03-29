@@ -2,7 +2,7 @@
 
 A VS Code extension for visualizing Sitecore CLI serialization changes with field-level diffs, pull/push previews, validation, and built-in connection management.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -13,14 +13,9 @@ A VS Code extension for visualizing Sitecore CLI serialization changes with fiel
 - Connect to **Sitecore on-prem** instances using Sitecore Identity Server (`dotnet sitecore login`)
 - Connect to **Sitecore AI** (XM Cloud) via `dotnet sitecore cloud login`
 - Auto-detects existing CLI connections on startup by scanning `.sitecore/` config files
-- **Auto-suggests the Authority URL** from the CM host (e.g. `https://cm.nb.sc` → `https://id.nb.sc`)
+- **Auto-suggests the Authority URL** from the CM host (e.g. `https://cm.sc.local` → `https://id.sc.local`)
 - Connection state persisted per workspace
 
-### 🔍 Local Change Tracking (Git-based)
-- **Added Items**: newly serialized Sitecore items
-- **Modified Items**: existing items with field-level changes
-- **Deleted Items**: items removed from serialization
-- Compares working tree against Git HEAD automatically
 
 ### 📥 Pull Preview
 - Runs `dotnet sitecore ser pull --what-if` to show what Sitecore has changed
@@ -98,19 +93,9 @@ dotnet sitecore cloud login
 
 ---
 
-### 2. View Local Changes
 
-The extension analyses your Git working tree automatically on startup and when `.yml` files change.
 
-1. Open the **Changes Overview** panel in the sidebar
-2. Expand **Added / Modified / Deleted** categories
-3. Click an item to open its YAML file
-4. Expand a modified item to see changed fields
-5. Click a field to open a **side-by-side diff**
-
----
-
-### 3. Preview Pull / Push
+### 2. Preview Pull / Push
 
 Use the toolbar buttons in the **Changes Overview** panel:
 
@@ -128,7 +113,7 @@ Both execute with a confirmation dialog before running the real command.
 
 ---
 
-### 4. Validate Serialization
+### 3. Validate Serialization
 
 Click the `$(check-all)` **Validate** toolbar button in the **Changes Overview** panel.
 
@@ -188,9 +173,8 @@ All commands are available via the Command Palette (`Ctrl+Shift+P` → type `Sit
 
 1. **Activation** — triggers when a `*.module.json` is found in the workspace
 2. **Auto-detection** — scans `.sitecore/` and `sitecore.json` for an existing CM host
-3. **Git analysis** — uses `simple-git` to detect added/modified/deleted `.yml` files vs HEAD
-4. **YAML parsing** — reads Sitecore item YAML to extract field values
-5. **CLI integration** — delegates pull/push/validate/login to the `dotnet sitecore` CLI via `child_process`
+3. **YAML parsing** — reads Sitecore item YAML to extract field values
+4. **CLI integration** — delegates pull/push/validate/login to the `dotnet sitecore` CLI via `child_process`
 
 ---
 

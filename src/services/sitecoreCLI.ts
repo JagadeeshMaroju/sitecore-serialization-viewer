@@ -100,6 +100,37 @@ export class SitecoreCLI {
     public getCliRoot(): string { return this.cliRoot; }
 
     /**
+     * Read .sitecore/user.json and return the host of the active (default) endpoint.
+     * Returns null if the file is missing, malformed, or no host is found.
+     */
+    public getXmCloudConnectedHost(): string | null {
+        const userJsonPaths = [
+            path.join(this.cliRoot, '.sitecore', 'user.json'),
+            path.join(this.workspaceRoot, '.sitecore', 'user.json'),
+        ];
+
+        for (const filePath of userJsonPaths) {
+            try {
+                const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const endpoints = json?.endpoints;
+                if (!endpoints || typeof endpoints !== 'object') { continue; }
+
+                // Resolve the active endpoint: prefer defaultEndpoint, then "default"
+                const defaultKey: string = json.defaultEndpoint || 'default';
+                const activeEndpoint = endpoints[defaultKey] || endpoints['default'];
+                if (!activeEndpoint) { continue; }
+
+                const host: string | undefined = activeEndpoint.host;
+                if (host && typeof host === 'string' && host.trim()) {
+                    return host.trim().replace(/\/$/, '');
+                }
+            } catch { /* file missing or invalid JSON – skip */ }
+        }
+
+        return null;
+    }
+
+    /**
      * Check if user is authenticated with Sitecore CLI
      */
     public async checkAuthentication(): Promise<{ authenticated: boolean; error?: string }> {

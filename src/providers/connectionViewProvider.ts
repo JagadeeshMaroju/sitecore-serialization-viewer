@@ -37,12 +37,14 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         const savedHost      = cfg.get<string>('sitecoreHost') || '';
         const savedAuthority = cfg.get<string>('sitecoreAuthority') || '';
         const loginType      = (cfg.get<string>('loginType') || 'identity') as LoginType;
-        this._view.webview.html = this._getHtml(savedHost, savedAuthority, loginType, state);
+        const cloudHost      = loginType === 'cloud' ? (this._cli.getXmCloudConnectedHost() || '') : '';
+        this._view.webview.html = this._getHtml(savedHost, savedAuthority, loginType, state, cloudHost);
     }
 
     private _renderWith(cmHost: string, authority: string, loginType: LoginType, state: 'idle' | 'connecting'): void {
         if (!this._view) { return; }
-        this._view.webview.html = this._getHtml(cmHost, authority, loginType, state);
+        const cloudHost = loginType === 'cloud' ? (this._cli.getXmCloudConnectedHost() || '') : '';
+        this._view.webview.html = this._getHtml(cmHost, authority, loginType, state, cloudHost);
     }
 
     private async _handleConnect(loginType: LoginType, cmHost: string, authority: string): Promise<void> {
@@ -97,7 +99,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         return u.replace(/\/$/, '');
     }
 
-    private _getHtml(savedHost: string, savedAuthority: string, loginType: LoginType, state: 'idle' | 'connecting'): string {
+    private _getHtml(savedHost: string, savedAuthority: string, loginType: LoginType, state: 'idle' | 'connecting', cloudHost = ''): string {
         const isCloud      = loginType === 'cloud';
         const isConnected  = (isCloud || !!savedHost) && state === 'idle';
         const isConnecting = state === 'connecting';
@@ -105,15 +107,24 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const escHost      = esc(savedHost);
         const escAuthority = esc(savedAuthority);
+        const escCloudHost = esc(cloudHost);
 
         const indicatorClass = isConnecting ? 'connecting' : isConnected ? 'connected' : 'disconnected';
-        const statusLabel    = isConnecting ? 'Connecting...' : isConnected ? (isCloud ? 'Connected (Cloud)' : 'Connected') : 'Not Connected';
+        const statusLabel    = isConnecting ? 'Connecting...' : isConnected ? (isCloud ? 'Connected (XM Cloud)' : 'Connected') : 'Not Connected';
         const dis            = isConnecting ? 'disabled' : '';
 
         // Auto-suggest authority: replace //cm with //id in the CM host (handles cm., cm-, etc.)
         const suggestedAuthority = savedHost.replace(/^(https?:\/\/)cm/, '$1id');
         const initialAuthority   = savedAuthority || (suggestedAuthority !== savedHost ? suggestedAuthority : '');
         const escInitialAuthority = esc(initialAuthority);
+
+        const connectedHostHtml = isConnected && !isConnecting
+            ? isCloud && escCloudHost
+                ? `<div class="status-host" title="${escCloudHost}">${escCloudHost}</div>`
+                : !isCloud && escHost
+                    ? `<div class="status-host" title="${escHost}">${escHost}</div>`
+                    : ''
+            : '';
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -202,9 +213,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         <div class="indicator ${indicatorClass}"></div>
         <div class="status-info">
             <div class="status-label">${statusLabel}</div>
-            ${isConnected && !isCloud && !isConnecting
-                ? `<div class="status-host" title="${escHost}">${escHost}</div>`
-                : ''}
+            ${connectedHostHtml}
         </div>
     </div>
 

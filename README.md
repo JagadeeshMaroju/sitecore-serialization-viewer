@@ -22,15 +22,35 @@ Supports two connection modes selectable from the **Connection** panel:
 - Connection state persisted per workspace
 - Connected host URL displayed in the status card after authentication
 
-### 📥 Pull Preview
-- Runs `dotnet sitecore ser pull --what-if` to show what Sitecore has changed
-- Displays Create / Update / Delete breakdown in the sidebar
-- One-click **Pull Now** button to execute the real pull after reviewing
+### 📥 Pull Preview & Pull Now
+- Runs `dotnet sitecore ser pull --what-if` to preview what Sitecore has changed **before touching any files**
+- Displays a Create / Update / Delete breakdown in the sidebar with field-level details
+- After reviewing, click **Pull Now** to execute the real pull — a confirmation dialog prevents accidental overwrites
+- **Pull Now** is available in three places: the Statistics panel, the Changes Overview toolbar, and the notification toast
 
-### 📤 Push Preview
-- Runs `dotnet sitecore ser push --what-if` to show what would be pushed
-- Displays Create / Update / Delete breakdown in the sidebar
-- One-click **Push Now** button to execute the real push after reviewing
+CLI commands executed:
+```bash
+# Preview
+dotnet sitecore ser pull --what-if
+
+# Execute (after confirmation)
+dotnet sitecore ser pull
+```
+
+### 📤 Push Preview & Push Now
+- Runs `dotnet sitecore ser push --what-if` to preview what your local files would push to Sitecore **before making any changes**
+- Displays a Create / Update / Delete breakdown in the sidebar with field-level details
+- After reviewing, click **Push Now** to execute the real push — a confirmation dialog prevents accidental overwrites
+- **Push Now** is available in three places: the Statistics panel, the Changes Overview toolbar, and the notification toast
+
+CLI commands executed:
+```bash
+# Preview
+dotnet sitecore ser push --what-if
+
+# Execute (after confirmation)
+dotnet sitecore ser push
+```
 
 ### ✅ Serialization Validation
 - Runs `dotnet sitecore ser validate` and groups results into **Errors / Warnings / Info**
@@ -78,6 +98,8 @@ Open the **Sitecore Serialization** activity bar → **Connection** panel, then 
 
 #### Sitecore on-prem (Sitecore Identity Server)
 
+![Sitecore on-prem Connection Panel](images/connection-panel-onprem.png)
+
 1. Select **Sitecore on-prem**
 2. Enter your **CM Host** (e.g. `https://cm.your-site.com`)
 3. The **Authority URL** is auto-suggested as `https://id.your-site.com` — change it if your Identity Server is at a different URL
@@ -93,6 +115,8 @@ After a successful connection the status card shows the connected CM host URL.
 ---
 
 #### Sitecore AI (XM Cloud)
+
+![Sitecore AI Connection Panel](images/connection-panel.png)
 
 The **Sitecore AI** panel has three sub-sections:
 
@@ -157,12 +181,40 @@ Use the toolbar buttons in the **Changes Overview** panel:
 | `$(cloud-download)` Preview Pull | Runs `dotnet sitecore ser pull --what-if` and shows what will change |
 | `$(cloud-upload)` Preview Push | Runs `dotnet sitecore ser push --what-if` and shows what will change |
 
-After a preview, a **Pull Now** or **Push Now** button appears:
-- In the **Statistics** panel (click the action item)
-- In the **Changes Overview** toolbar
-- In the notification toast
+The preview shows every affected item broken down by change type:
 
-Both execute with a confirmation dialog before running the real command.
+| Icon | Type | Meaning |
+|------|------|---------|
+| `+` Create | Item exists in Sitecore but not locally | Will be created locally on pull |
+| `~` Update | Item exists in both but has differences | Changed fields will be shown with old → new values |
+| `-` Delete | Item exists locally but not in Sitecore | Will be removed locally on pull |
+
+Expand any item in the tree to see exactly which fields changed and what the old and new values are.
+
+---
+
+### 3. Pull Now / Push Now
+
+After a preview, a **Pull Now** or **Push Now** button becomes available in three places:
+
+| Location | How to trigger |
+|----------|----------------|
+| **Statistics** panel | Click the **Pull Now** / **Push Now** action item |
+| **Changes Overview** toolbar | Click the toolbar button that appears after a preview |
+| **Notification toast** | Click **Pull Now** / **Push Now** in the notification that appears |
+
+Both actions show a **confirmation dialog** before running. Dismissing the dialog cancels the operation without making any changes.
+
+CLI commands executed:
+```bash
+# Real pull — overwrites local files with Sitecore content
+dotnet sitecore ser pull
+
+# Real push — writes local files to Sitecore
+dotnet sitecore ser push
+```
+
+> For Sitecore AI, pull and push always target the **default environment** set in `.sitecore/user.json`. Use **Switch Default Environment** in the Connection panel to change the target before running.
 
 ---
 

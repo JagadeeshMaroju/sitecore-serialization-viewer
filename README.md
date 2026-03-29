@@ -1,6 +1,6 @@
 # Sitecore Serialization Viewer
 
-A VS Code extension for visualizing Sitecore CLI serialization changes with field-level diffs, pull/push previews, validation, and built-in connection management.
+A VS Code extension for visualizing Sitecore CLI serialization changes with field-level diffs, pull/push previews, validation, and built-in connection management — supporting both **Sitecore on-prem** and **Sitecore AI (XM Cloud)**.
 
 ![Version](https://img.shields.io/badge/version-1.0.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -10,12 +10,17 @@ A VS Code extension for visualizing Sitecore CLI serialization changes with fiel
 ## Features
 
 ### 🔌 Connection Management
-- Connect to **Sitecore on-prem** instances using Sitecore Identity Server (`dotnet sitecore login`)
-- Connect to **Sitecore AI** (XM Cloud) via `dotnet sitecore cloud login`
-- Auto-detects existing CLI connections on startup by scanning `.sitecore/` config files
-- **Auto-suggests the Authority URL** from the CM host (e.g. `https://cm.sc.local` → `https://id.sc.local`)
-- Connection state persisted per workspace
 
+Supports two connection modes selectable from the **Connection** panel:
+
+| Mode | Use For |
+|------|---------|
+| **Sitecore on-prem** | Self-hosted XM / XP instances using Sitecore Identity Server |
+| **Sitecore AI** | Sitecore XM Cloud (cloud-managed environments) |
+
+- Auto-detects existing CLI connections on startup by scanning `.sitecore/user.json`
+- Connection state persisted per workspace
+- Connected host URL displayed in the status card after authentication
 
 ### 📥 Pull Preview
 - Runs `dotnet sitecore ser pull --what-if` to show what Sitecore has changed
@@ -67,33 +72,81 @@ The extension activates automatically when it detects a `*.module.json` file in 
 
 ### 1. Connect to Sitecore
 
-Open the **Sitecore Serialization** activity bar → **Connection** panel.
+Open the **Sitecore Serialization** activity bar → **Connection** panel, then choose your mode.
 
-**Sitecore on-prem (Sitecore Identity Server)**
+---
+
+#### Sitecore on-prem (Sitecore Identity Server)
+
 1. Select **Sitecore on-prem**
 2. Enter your **CM Host** (e.g. `https://cm.your-site.com`)
 3. The **Authority URL** is auto-suggested as `https://id.your-site.com` — change it if your Identity Server is at a different URL
 4. Click **Connect** — a browser window opens for authentication
 
-The CLI command executed:
+CLI command executed:
 ```bash
 dotnet sitecore login --authority https://id.your-site.com --cm https://cm.your-site.com --allow-write true
 ```
 
-**Sitecore AI (XM Cloud)**
-1. Select **Sitecore AI**
-2. Click **Connect** — a browser window opens for Sitecore Cloud authentication
+After a successful connection the status card shows the connected CM host URL.
 
-The CLI command executed:
+---
+
+#### Sitecore AI (XM Cloud)
+
+The **Sitecore AI** panel has three sub-sections:
+
+---
+
+##### Switch Default Environment
+
+Populated automatically from your `.sitecore/user.json` endpoints. All environments that reference the XM Cloud base configuration are listed here (e.g. `default`, `qa`, `staging`).
+
+- The **current default** environment is pre-selected in the dropdown
+- **Set as Default** is disabled while the current default is selected — it enables as soon as you pick a different environment
+- Clicking **Set as Default** runs:
+
+```bash
+dotnet sitecore environment set-default -n <EnvironmentName>
+```
+
+> Pull and push operations always run against the **default** environment, so switching here changes what `ser pull` / `ser push` targets.
+
+---
+
+##### Connect to Environment
+
+Use this to add a new XM Cloud environment to your project by its environment ID (found in the XM Cloud Deploy portal).
+
+1. Paste the **Environment ID** (e.g. `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+2. Click **Connect**
+
+CLI command executed:
+```bash
+dotnet sitecore cloud environment connect --environment-id <EnvironmentId> --allow-write true
+```
+
+After connecting, the new environment appears in the **Switch Default Environment** dropdown automatically.
+
+---
+
+##### Cloud Login
+
+Use this once to authenticate your machine with Sitecore Cloud (or when your session expires).
+
+1. Click **Cloud Login**
+2. A browser window opens for Sitecore Cloud authentication
+
+CLI command executed:
 ```bash
 dotnet sitecore cloud login
 ```
 
-> If you are already authenticated via the CLI, the extension auto-detects your host from `.sitecore/user.json` and `sitecore.json` on startup.
-
 ---
 
+> After any Sitecore AI action (login, connect to environment, set default) the status card refreshes and shows the currently active CM host read from `.sitecore/user.json`.
 
+---
 
 ### 2. Preview Pull / Push
 
@@ -152,8 +205,8 @@ All commands are available via the Command Palette (`Ctrl+Shift+P` → type `Sit
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `sitecoreSerializer.loginType` | `"identity"` | `"identity"` for Sitecore on-prem, `"cloud"` for Sitecore AI |
-| `sitecoreSerializer.sitecoreHost` | `""` | CM host URL saved after a successful connection |
-| `sitecoreSerializer.sitecoreAuthority` | `""` | Identity Server URL saved after a successful connection |
+| `sitecoreSerializer.sitecoreHost` | `""` | CM host URL saved after a successful on-prem connection |
+| `sitecoreSerializer.sitecoreAuthority` | `""` | Identity Server URL saved after a successful on-prem connection |
 | `sitecoreSerializer.serializationPath` | `"Serialization"` | Path to the serialization folder (relative to workspace root) |
 | `sitecoreSerializer.autoRefresh` | `true` | Refresh automatically when `.yml` files change |
 | `sitecoreSerializer.showFieldIDs` | `false` | Show field GUIDs alongside field names |
@@ -172,9 +225,37 @@ All commands are available via the Command Palette (`Ctrl+Shift+P` → type `Sit
 ## How It Works
 
 1. **Activation** — triggers when a `*.module.json` is found in the workspace
-2. **Auto-detection** — scans `.sitecore/` and `sitecore.json` for an existing CM host
+2. **Auto-detection** — scans `.sitecore/user.json` for an existing CM host and available environments
 3. **YAML parsing** — reads Sitecore item YAML to extract field values
-4. **CLI integration** — delegates pull/push/validate/login to the `dotnet sitecore` CLI via `child_process`
+4. **CLI integration** — delegates pull / push / validate / login / environment management to the `dotnet sitecore` CLI via `child_process`
+
+### `.sitecore/user.json` — Environment Resolution
+
+For Sitecore AI, the extension reads your project's `.sitecore/user.json` to discover environments. Endpoints that contain a `ref` field are treated as XM Cloud environments:
+
+```json
+{
+  "endpoints": {
+    "xmCloud": {
+      "host": "https://xmclouddeploy-api.sitecorecloud.io/",
+      "authority": "https://auth.sitecorecloud.io/"
+    },
+    "default": {
+      "ref": "xmCloud",
+      "host": "https://xmc-<id>-dev.sitecorecloud.io/",
+      "allowWrite": true
+    },
+    "qa": {
+      "ref": "xmCloud",
+      "host": "https://xmc-<id>-qa.sitecorecloud.io/",
+      "allowWrite": true
+    }
+  },
+  "defaultEndpoint": "default"
+}
+```
+
+The `defaultEndpoint` value determines which environment `ser pull` and `ser push` operate against. Use **Switch Default Environment** in the Connection panel to change it.
 
 ---
 

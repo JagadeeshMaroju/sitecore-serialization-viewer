@@ -268,7 +268,6 @@ All commands are available via the Command Palette (`Ctrl+Shift+P` → type `Sit
 ## Requirements
 
 - VS Code 1.85.0 or higher
-- Git repository
 - [Sitecore CLI](https://doc.sitecore.com/xmc/en/developers/xm-cloud/sitecore-command-line-interface.html) (`dotnet tool install -g Sitecore.CLI`)
 - A Sitecore XM / XM Cloud project with CLI serialization (`.module.json` files)
 

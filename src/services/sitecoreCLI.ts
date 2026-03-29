@@ -42,11 +42,62 @@ export interface FieldChange {
 }
 
 export class SitecoreCLI {
-    private workspaceRoot: string;
+    private workspaceRoot: string;  // git root (for file discovery)
+    private cliRoot: string;        // directory containing sitecore.json (for CLI commands)
 
     constructor(workspaceRoot: string) {
         this.workspaceRoot = workspaceRoot;
+        this.cliRoot = this._findCliRoot(workspaceRoot);
+        console.log(`[SitecoreCLI] git root:  ${workspaceRoot}`);
+        console.log(`[SitecoreCLI] CLI root:   ${this.cliRoot}`);
     }
+
+    /**
+     * Find the directory containing sitecore.json, searching downward from the
+     * given root (max 4 levels). The Sitecore CLI must be run from this directory
+     * so it can resolve plugins and environment configuration.
+     */
+    private _findCliRoot(searchRoot: string): string {
+        // BFS so we find the shallowest sitecore.json first
+        const queue: string[] = [searchRoot];
+        const visited = new Set<string>();
+        let depth = 0;
+
+        while (queue.length > 0 && depth <= 4) {
+            const nextLevel: string[] = [];
+            for (const dir of queue) {
+                if (visited.has(dir)) { continue; }
+                visited.add(dir);
+
+                const candidate = path.join(dir, 'sitecore.json');
+                if (fs.existsSync(candidate)) {
+                    console.log(`[SitecoreCLI] Found sitecore.json at: ${dir}`);
+                    return dir;
+                }
+
+                try {
+                    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                        if (entry.isDirectory() &&
+                            !entry.name.startsWith('.') &&
+                            entry.name !== 'node_modules' &&
+                            entry.name !== 'dist' &&
+                            entry.name !== 'bin' &&
+                            entry.name !== 'obj') {
+                            nextLevel.push(path.join(dir, entry.name));
+                        }
+                    }
+                } catch { /* permission denied etc. – skip */ }
+            }
+            queue.length = 0;
+            queue.push(...nextLevel);
+            depth++;
+        }
+
+        console.log(`[SitecoreCLI] sitecore.json not found, falling back to git root: ${searchRoot}`);
+        return searchRoot;
+    }
+
+    public getCliRoot(): string { return this.cliRoot; }
 
     /**
      * Check if user is authenticated with Sitecore CLI
@@ -55,7 +106,7 @@ export class SitecoreCLI {
         try {
             // Try to get environment info (requires auth)
             const { stdout } = await execAsync('dotnet sitecore cloud environment info', {
-                cwd: this.workspaceRoot,
+                cwd: this.cliRoot,
                 timeout: 5000
             });
 
@@ -153,7 +204,7 @@ export class SitecoreCLI {
                 console.log(`[SitecoreCLI] connectToHost: ${command}`);
 
                 const { stdout, stderr } = await execAsync(command, {
-                    cwd: this.workspaceRoot,
+                    cwd: this.cliRoot,
                     timeout: 300000 // 5 minutes for browser-based auth
                 });
 
@@ -209,7 +260,7 @@ export class SitecoreCLI {
                     : 'dotnet sitecore login';
 
                 const { stdout, stderr } = await execAsync(loginCmd, {
-                    cwd: this.workspaceRoot,
+                    cwd: this.cliRoot,
                     timeout: 120000 // 2 minutes timeout
                 });
 
@@ -230,6 +281,55 @@ export class SitecoreCLI {
                 error: error.message
             };
         }
+    }
+
+    /**
+     * Check if error output indicates a missing Sitecore CLI plugin and show a
+     * helpful notification with an option to install it automatically.
+     * Returns true if the error was a plugin-missing error (caller should abort).
+     */
+    private async handlePluginMissingError(output: string): Promise<boolean> {
+        if (!output.toLowerCase().includes('could not locate plugin')) {
+            return false;
+        }
+
+        // Extract the plugin name from the error message if possible
+        const match = output.match(/Could not locate plugin\s+([\w.@]+)/i);
+        const pluginName = match ? match[1].split('@')[0] : 'Sitecore.DevEx.Extensibility.Serialization';
+
+        console.log(`[SitecoreCLI] Missing plugin detected: ${pluginName}`);
+
+        const action = await vscode.window.showErrorMessage(
+            `Sitecore CLI plugin not installed: ${pluginName}\n\nRun "dotnet sitecore plugin install" in your project root to install all required plugins.`,
+            'Install Plugins Now',
+            'Copy Command'
+        );
+
+        if (action === 'Install Plugins Now') {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Installing Sitecore CLI Plugins',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: 'Running dotnet sitecore plugin install...' });
+                try {
+                    const { stdout, stderr } = await execAsync('dotnet sitecore plugin install', {
+                        cwd: this.cliRoot,
+                        timeout: 120000
+                    });
+                    console.log(`[SitecoreCLI] plugin install output: ${stdout}${stderr || ''}`);
+                    vscode.window.showInformationMessage('✅ Sitecore CLI plugins installed. Please retry your action.');
+                } catch (err: any) {
+                    const errMsg = (err.stdout || '') + (err.stderr || '') + (err.message || '');
+                    vscode.window.showErrorMessage(`Plugin install failed: ${errMsg}`);
+                }
+            });
+        } else if (action === 'Copy Command') {
+            await vscode.env.clipboard.writeText('dotnet sitecore plugin install');
+            vscode.window.showInformationMessage('📋 Command copied! Run it in your project root, then retry.');
+        }
+
+        return true;
     }
 
     /**
@@ -265,7 +365,7 @@ export class SitecoreCLI {
         
         try {
             const { stdout, stderr } = await execAsync(command, {
-                cwd: this.workspaceRoot,
+                cwd: this.cliRoot,
                 maxBuffer: 1024 * 1024 * 10
             });
 
@@ -281,7 +381,16 @@ export class SitecoreCLI {
             const errorOutput = (error.stdout || '') + (error.stderr || '');
             console.log(`[SitecoreCLI] Command failed with error:`, error.message);
             console.log(`[SitecoreCLI] Error output length: ${errorOutput.length} chars`);
-            
+
+            // Check for missing plugin first — show install guidance and abort
+            if (await this.handlePluginMissingError(errorOutput + error.message)) {
+                return {
+                    success: false,
+                    output: errorOutput,
+                    error: 'Sitecore CLI plugin not installed. Please install plugins and retry.'
+                };
+            }
+
             // Check if it's an authentication error
             if (this.isAuthenticationError(errorOutput)) {
                 console.log(`[SitecoreCLI] Authentication error detected`);
@@ -306,7 +415,7 @@ export class SitecoreCLI {
                 // Retry the command after successful login
                 try {
                     const { stdout, stderr } = await execAsync(command, {
-                        cwd: this.workspaceRoot,
+                        cwd: this.cliRoot,
                         maxBuffer: 1024 * 1024 * 10
                     });
 
@@ -637,7 +746,7 @@ export class SitecoreCLI {
                 console.log('[SitecoreCLI] cloudLogin: dotnet sitecore cloud login');
 
                 await execAsync('dotnet sitecore cloud login', {
-                    cwd: this.workspaceRoot,
+                    cwd: this.cliRoot,
                     timeout: 300000
                 });
 

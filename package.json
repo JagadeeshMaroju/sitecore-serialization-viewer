@@ -2,7 +2,7 @@
   "name": "sitecore-serialization-viewer",
   "displayName": "Sitecore Serialization Viewer",
   "description": "Visualize Sitecore CLI serialization changes with detailed field-level diffs",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "publisher": "JagadheeshMaroju",
   "engines": {
     "vscode": "^1.85.0"

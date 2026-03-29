@@ -41,6 +41,12 @@ export interface FieldChange {
     newValue?: string;
 }
 
+export interface XmCloudEnvironment {
+    name: string;
+    host: string;
+    isDefault: boolean;
+}
+
 export class SitecoreCLI {
     private workspaceRoot: string;  // git root (for file discovery)
     private cliRoot: string;        // directory containing sitecore.json (for CLI commands)
@@ -128,6 +134,92 @@ export class SitecoreCLI {
         }
 
         return null;
+    }
+
+    /**
+     * Read .sitecore/user.json and return all XM Cloud environments (endpoints that
+     * reference the xmCloud base config via a "ref" field).
+     */
+    public getXmCloudEnvironments(): XmCloudEnvironment[] {
+        const userJsonPaths = [
+            path.join(this.cliRoot, '.sitecore', 'user.json'),
+            path.join(this.workspaceRoot, '.sitecore', 'user.json'),
+        ];
+
+        for (const filePath of userJsonPaths) {
+            try {
+                const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const endpoints = json?.endpoints;
+                if (!endpoints || typeof endpoints !== 'object') { continue; }
+
+                const defaultKey: string = (json.defaultEndpoint || 'default').toLowerCase();
+                const envs: XmCloudEnvironment[] = [];
+
+                for (const [name, ep] of Object.entries(endpoints)) {
+                    const endpoint = ep as Record<string, unknown>;
+                    // Only include endpoints that reference the xmCloud base (have a "ref" field)
+                    if (!endpoint.ref) { continue; }
+                    const host = typeof endpoint.host === 'string' ? endpoint.host.trim().replace(/\/$/, '') : '';
+                    envs.push({ name, host, isDefault: name.toLowerCase() === defaultKey });
+                }
+
+                if (envs.length > 0) { return envs; }
+            } catch { /* file missing or invalid JSON – skip */ }
+        }
+
+        return [];
+    }
+
+    /**
+     * Connect to an XM Cloud environment by environment ID.
+     * Runs: dotnet sitecore cloud environment connect --environment-id <id> --allow-write true
+     */
+    public async connectToEnvironment(environmentId: string): Promise<{ success: boolean; error?: string }> {
+        const command = `dotnet sitecore cloud environment connect --environment-id ${environmentId} --allow-write true`;
+        try {
+            return await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Connecting to XM Cloud Environment',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: `Connecting to environment ${environmentId}...` });
+                console.log(`[SitecoreCLI] connectToEnvironment: ${command}`);
+                const { stdout, stderr } = await execAsync(command, { cwd: this.cliRoot, timeout: 120000 });
+                console.log(`[SitecoreCLI] connectToEnvironment output: ${stdout}${stderr || ''}`);
+                vscode.window.showInformationMessage(`✅ Connected to XM Cloud environment!`);
+                return { success: true };
+            });
+        } catch (error: any) {
+            const msg = (error.stdout || '') + (error.stderr || '') + (error.message || '');
+            console.error('[SitecoreCLI] connectToEnvironment failed:', msg);
+            return { success: false, error: msg.trim() || error.message || 'Unknown error' };
+        }
+    }
+
+    /**
+     * Set the default Sitecore environment.
+     * Runs: dotnet sitecore environment set-default -n <environmentName>
+     */
+    public async setDefaultEnvironment(environmentName: string): Promise<{ success: boolean; error?: string }> {
+        const command = `dotnet sitecore environment set-default -n ${environmentName}`;
+        try {
+            return await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Setting Default Environment',
+                cancellable: false
+            }, async (progress) => {
+                progress.report({ message: `Setting "${environmentName}" as default...` });
+                console.log(`[SitecoreCLI] setDefaultEnvironment: ${command}`);
+                const { stdout, stderr } = await execAsync(command, { cwd: this.cliRoot, timeout: 30000 });
+                console.log(`[SitecoreCLI] setDefaultEnvironment output: ${stdout}${stderr || ''}`);
+                vscode.window.showInformationMessage(`✅ "${environmentName}" is now the default environment.`);
+                return { success: true };
+            });
+        } catch (error: any) {
+            const msg = (error.stdout || '') + (error.stderr || '') + (error.message || '');
+            console.error('[SitecoreCLI] setDefaultEnvironment failed:', msg);
+            return { success: false, error: msg.trim() || error.message || 'Unknown error' };
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { SitecoreCLI } from '../services/sitecoreCLI';
+import { SitecoreCLI, XmCloudEnvironment } from '../services/sitecoreCLI';
 
 type LoginType = 'identity' | 'cloud';
 
@@ -25,6 +25,10 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (msg.command === 'connect') {
                 await this._handleConnect(msg.loginType, msg.cmHost, msg.authority);
+            } else if (msg.command === 'connectEnvironment') {
+                await this._handleConnectEnvironment(msg.environmentId);
+            } else if (msg.command === 'setDefaultEnvironment') {
+                await this._handleSetDefaultEnvironment(msg.environmentName);
             }
         });
     }
@@ -38,13 +42,15 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         const savedAuthority = cfg.get<string>('sitecoreAuthority') || '';
         const loginType      = (cfg.get<string>('loginType') || 'identity') as LoginType;
         const cloudHost      = loginType === 'cloud' ? (this._cli.getXmCloudConnectedHost() || '') : '';
-        this._view.webview.html = this._getHtml(savedHost, savedAuthority, loginType, state, cloudHost);
+        const environments   = loginType === 'cloud' ? this._cli.getXmCloudEnvironments() : [];
+        this._view.webview.html = this._getHtml(savedHost, savedAuthority, loginType, state, cloudHost, environments);
     }
 
     private _renderWith(cmHost: string, authority: string, loginType: LoginType, state: 'idle' | 'connecting'): void {
         if (!this._view) { return; }
-        const cloudHost = loginType === 'cloud' ? (this._cli.getXmCloudConnectedHost() || '') : '';
-        this._view.webview.html = this._getHtml(cmHost, authority, loginType, state, cloudHost);
+        const cloudHost    = loginType === 'cloud' ? (this._cli.getXmCloudConnectedHost() || '') : '';
+        const environments = loginType === 'cloud' ? this._cli.getXmCloudEnvironments() : [];
+        this._view.webview.html = this._getHtml(cmHost, authority, loginType, state, cloudHost, environments);
     }
 
     private async _handleConnect(loginType: LoginType, cmHost: string, authority: string): Promise<void> {
@@ -93,29 +99,50 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async _handleConnectEnvironment(environmentId: string): Promise<void> {
+        if (!environmentId || !environmentId.trim()) {
+            vscode.window.showErrorMessage('Please enter an Environment ID.');
+            return;
+        }
+        this._renderWith('', '', 'cloud', 'connecting');
+        const result = await this._cli.connectToEnvironment(environmentId.trim());
+        if (!result.success && result.error !== 'Cancelled by user') {
+            vscode.window.showErrorMessage(`Environment connect failed: ${result.error}`);
+        }
+        this._render();
+    }
+
+    private async _handleSetDefaultEnvironment(environmentName: string): Promise<void> {
+        if (!environmentName) { return; }
+        this._renderWith('', '', 'cloud', 'connecting');
+        const result = await this._cli.setDefaultEnvironment(environmentName);
+        if (!result.success && result.error !== 'Cancelled by user') {
+            vscode.window.showErrorMessage(`Set default failed: ${result.error}`);
+        }
+        this._render();
+    }
+
     private _normalizeUrl(url: string): string {
         let u = url.trim();
         if (!u.startsWith('http://') && !u.startsWith('https://')) { u = 'https://' + u; }
         return u.replace(/\/$/, '');
     }
 
-    private _getHtml(savedHost: string, savedAuthority: string, loginType: LoginType, state: 'idle' | 'connecting', cloudHost = ''): string {
+    private _getHtml(savedHost: string, savedAuthority: string, loginType: LoginType, state: 'idle' | 'connecting', cloudHost = '', environments: XmCloudEnvironment[] = []): string {
         const isCloud      = loginType === 'cloud';
         const isConnected  = (isCloud || !!savedHost) && state === 'idle';
         const isConnecting = state === 'connecting';
 
         const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const escHost      = esc(savedHost);
-        const escAuthority = esc(savedAuthority);
         const escCloudHost = esc(cloudHost);
 
         const indicatorClass = isConnecting ? 'connecting' : isConnected ? 'connected' : 'disconnected';
         const statusLabel    = isConnecting ? 'Connecting...' : isConnected ? (isCloud ? 'Connected (XM Cloud)' : 'Connected') : 'Not Connected';
         const dis            = isConnecting ? 'disabled' : '';
 
-        // Auto-suggest authority: replace //cm with //id in the CM host (handles cm., cm-, etc.)
-        const suggestedAuthority = savedHost.replace(/^(https?:\/\/)cm/, '$1id');
-        const initialAuthority   = savedAuthority || (suggestedAuthority !== savedHost ? suggestedAuthority : '');
+        const suggestedAuthority  = savedHost.replace(/^(https?:\/\/)cm/, '$1id');
+        const initialAuthority    = savedAuthority || (suggestedAuthority !== savedHost ? suggestedAuthority : '');
         const escInitialAuthority = esc(initialAuthority);
 
         const connectedHostHtml = isConnected && !isConnecting
@@ -125,6 +152,10 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
                     ? `<div class="status-host" title="${escHost}">${escHost}</div>`
                     : ''
             : '';
+
+        const envOptionsHtml = environments.map(e =>
+            `<option value="${esc(e.name)}" ${e.isDefault ? 'selected' : ''}>${esc(e.name)} — ${esc(e.host)}</option>`
+        ).join('');
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -161,9 +192,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             margin-top: 2px; font-family: var(--vscode-editor-font-family, monospace);
         }
-        .segment-row {
-            display: flex; gap: 4px; margin-bottom: 14px;
-        }
+        .segment-row { display: flex; gap: 4px; margin-bottom: 14px; }
         .segment-btn {
             flex: 1; padding: 4px 8px; border-radius: 3px; cursor: pointer;
             font-family: var(--vscode-font-family); font-size: 12px;
@@ -182,7 +211,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
             font-size: 11px; color: var(--vscode-descriptionForeground);
             text-transform: uppercase; letter-spacing: 0.06em;
         }
-        input[type="text"] {
+        input[type="text"], select {
             width: 100%; padding: 5px 8px;
             background: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
@@ -191,10 +220,11 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
             font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
             outline: none; margin-bottom: 10px;
         }
-        input[type="text"]:focus   { border-color: var(--vscode-focusBorder); }
+        input[type="text"]:focus, select:focus { border-color: var(--vscode-focusBorder); }
         input[type="text"]::placeholder { color: var(--vscode-input-placeholderForeground); }
-        input[type="text"]:disabled { opacity: 0.5; }
-        .btn-row { display: flex; gap: 6px; }
+        input[type="text"]:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
+        select { cursor: pointer; }
+        .btn-row { display: flex; gap: 6px; margin-bottom: 14px; }
         button.btn-primary {
             flex: 1; padding: 5px 10px; border: none; border-radius: 2px;
             cursor: pointer; font-family: var(--vscode-font-family);
@@ -202,10 +232,26 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
         }
-        button.btn-primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+        button.btn-secondary {
+            flex: 1; padding: 5px 10px; border-radius: 2px; cursor: pointer;
+            font-family: var(--vscode-font-family); font-size: 12px; font-weight: 500;
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: none;
+        }
+        button.btn-primary:hover:not(:disabled)   { background: var(--vscode-button-hoverBackground); }
+        button.btn-secondary:hover:not(:disabled)  { background: var(--vscode-button-secondaryHoverBackground); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
-        .hint { margin-top: 10px; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5; }
-        .cloud-hint { margin-bottom: 10px; font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5; }
+        .section-title {
+            font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+            color: var(--vscode-descriptionForeground);
+            text-transform: uppercase; margin-bottom: 8px; margin-top: 2px;
+        }
+        .divider {
+            border: none; border-top: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
+            margin: 12px 0;
+        }
+        .hint { font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5; }
     </style>
 </head>
 <body>
@@ -222,6 +268,7 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         <button class="segment-btn ${isCloud ? 'active' : ''}" id="btnCloud" onclick="setType('cloud')" ${dis}>Sitecore AI</button>
     </div>
 
+    <!-- ── On-prem section ── -->
     <div id="identityFields" style="display:${isCloud ? 'none' : 'block'}">
         <label for="cmHostInput">CM Host</label>
         <input type="text" id="cmHostInput" value="${escHost}"
@@ -230,19 +277,56 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
         <label for="authorityInput">Authority URL</label>
         <input type="text" id="authorityInput" value="${escInitialAuthority}"
             placeholder="https://id.your-site.com" ${dis} data-auto="true" />
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="connectIdentity()" ${dis}>Connect</button>
+        </div>
+        <div class="hint">
+            A browser window will open to complete authentication.<br>
+            The Authority URL defaults to <em>id.</em> of your CM host if left blank.
+        </div>
     </div>
 
+    <!-- ── Sitecore AI (XM Cloud) section ── -->
     <div id="cloudFields" style="display:${isCloud ? 'block' : 'none'}">
-        <div class="cloud-hint">Authenticates via <strong>dotnet sitecore cloud login</strong>.<br>No host configuration required for Sitecore AI.</div>
-    </div>
 
-    <div class="btn-row">
-        <button class="btn-primary" onclick="connect()" ${dis}>Connect</button>
-    </div>
+        ${environments.length > 0 ? `
+        <div class="section-title">Switch Default Environment</div>
+        <label for="envSelect">Environment</label>
+        <select id="envSelect" ${dis}>
+            ${envOptionsHtml}
+        </select>
+        <div class="btn-row">
+            <button class="btn-secondary" id="btnSetDefault" onclick="setDefaultEnv()" ${dis} disabled>Set as Default</button>
+        </div>
+        <div class="hint" style="margin-bottom:0">
+            Changes which environment pull &amp; push target.
+        </div>
 
-    <div class="hint" id="identityHint" style="display:${isCloud ? 'none' : 'block'}">
-        A browser window will open to complete authentication.<br>
-        The Authority URL defaults to <em>id.</em> of your CM host if left blank.
+        <hr class="divider">
+        ` : ''}
+
+        <div class="section-title">Connect to Environment</div>
+        <label for="envIdInput">Environment ID</label>
+        <input type="text" id="envIdInput"
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" ${dis} />
+        <div class="btn-row">
+            <button class="btn-secondary" onclick="connectEnvironment()" ${dis}>Connect</button>
+        </div>
+        <div class="hint" style="margin-bottom:0">
+            Runs <code>dotnet sitecore cloud environment connect</code> and adds the environment to your project.
+        </div>
+
+        <hr class="divider">
+
+        <div class="section-title">Cloud Login</div>
+        <div class="btn-row">
+            <button class="btn-primary" onclick="cloudLogin()" ${dis}>Cloud Login</button>
+        </div>
+        <div class="hint" style="margin-bottom:0">
+            Opens a browser to authenticate with <strong>Sitecore Cloud</strong>.
+        </div>
+
     </div>
 
     <script>
@@ -253,30 +337,40 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
             currentType = type;
             document.getElementById('identityFields').style.display = type === 'identity' ? 'block' : 'none';
             document.getElementById('cloudFields').style.display    = type === 'cloud'    ? 'block' : 'none';
-            document.getElementById('identityHint').style.display   = type === 'identity' ? 'block' : 'none';
             document.getElementById('btnIdentity').classList.toggle('active', type === 'identity');
             document.getElementById('btnCloud').classList.toggle('active', type === 'cloud');
         }
 
-        function suggestAuthority(cm) {
-            return cm.replace(/^(https?:\\/\\/)cm/, '$1id');
+        function cloudLogin() {
+            vscode.postMessage({ command: 'connect', loginType: 'cloud', cmHost: '', authority: '' });
         }
 
-        function connect() {
-            if (currentType === 'cloud') {
-                vscode.postMessage({ command: 'connect', loginType: 'cloud', cmHost: '', authority: '' });
-                return;
-            }
+        function connectEnvironment() {
+            const envId = (document.getElementById('envIdInput')?.value || '').trim();
+            if (!envId) { document.getElementById('envIdInput')?.focus(); return; }
+            vscode.postMessage({ command: 'connectEnvironment', environmentId: envId });
+        }
+
+        function setDefaultEnv() {
+            const sel = document.getElementById('envSelect');
+            const envName = sel ? sel.value : '';
+            if (!envName) { return; }
+            vscode.postMessage({ command: 'setDefaultEnvironment', environmentName: envName });
+        }
+
+        function connectIdentity() {
             const cmHost    = (document.getElementById('cmHostInput')?.value || '').trim();
             const authority = (document.getElementById('authorityInput')?.value || '').trim();
             if (!cmHost) { document.getElementById('cmHostInput')?.focus(); return; }
             vscode.postMessage({ command: 'connect', loginType: 'identity', cmHost, authority });
         }
 
-        // Auto-populate authority when CM host changes
+        function suggestAuthority(cm) {
+            return cm.replace(/^(https?:\\/\\/)cm/, '$1id');
+        }
+
         const cmInput   = document.getElementById('cmHostInput');
         const authInput = document.getElementById('authorityInput');
-
         if (cmInput && authInput) {
             cmInput.addEventListener('input', function() {
                 if (authInput.dataset.auto !== 'false') {
@@ -284,15 +378,28 @@ export class ConnectionViewProvider implements vscode.WebviewViewProvider {
                     if (suggested !== this.value.trim()) { authInput.value = suggested; }
                 }
             });
-            authInput.addEventListener('input', function() {
-                this.dataset.auto = 'false';
-            });
+            authInput.addEventListener('input', function() { this.dataset.auto = 'false'; });
         }
 
         ['cmHostInput', 'authorityInput'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) { el.addEventListener('keydown', e => { if (e.key === 'Enter') { connect(); } }); }
+            if (el) { el.addEventListener('keydown', e => { if (e.key === 'Enter') { connectIdentity(); } }); }
         });
+
+        const envIdInput = document.getElementById('envIdInput');
+        if (envIdInput) {
+            envIdInput.addEventListener('keydown', e => { if (e.key === 'Enter') { connectEnvironment(); } });
+        }
+
+        // Enable "Set as Default" only when a non-default environment is selected
+        const envSelect    = document.getElementById('envSelect');
+        const btnSetDefault = document.getElementById('btnSetDefault');
+        const defaultEnvName = '${environments.find(e => e.isDefault)?.name ?? ''}';
+        if (envSelect && btnSetDefault) {
+            envSelect.addEventListener('change', function() {
+                btnSetDefault.disabled = this.value === defaultEnvName;
+            });
+        }
     </script>
 </body>
 </html>`;

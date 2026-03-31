@@ -5,7 +5,6 @@ A VS Code extension for visualizing Sitecore CLI serialization changes with fiel
 ![Version](https://img.shields.io/badge/version-1.0.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-🔗 **[GitHub Repository](https://github.com/JagadeeshMaroju/sitecore-serialization-viewer)**
 
 ---
 

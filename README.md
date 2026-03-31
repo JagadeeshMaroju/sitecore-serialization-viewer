@@ -5,6 +5,8 @@ A VS Code extension for visualizing Sitecore CLI serialization changes with fiel
 ![Version](https://img.shields.io/badge/version-1.0.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+🔗 **[GitHub Repository](https://github.com/JagadeeshMaroju/sitecore-serialization-viewer)**
+
 ---
 
 ## Features
@@ -79,7 +81,7 @@ dotnet sitecore ser push
 ## Installation
 
 ### From VSIX
-1. Download the latest `.vsix` file from releases
+1. Download the latest `.vsix` file from the [Marketplace app page](https://marketplace.visualstudio.com/items?itemName=JagadheeshMaroju.sitecore-serialization-viewer)
 2. In VS Code open the Extensions view (`Ctrl+Shift+X`)
 3. Click the `...` menu → **Install from VSIX…**
 4. Select the downloaded file

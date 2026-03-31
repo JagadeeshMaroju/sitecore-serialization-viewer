@@ -80,9 +80,15 @@ dotnet sitecore ser push
 
 ## Installation
 
+### From VS Code Marketplace _(recommended)_
+1. Open VS Code
+2. Open the Extensions view (`Ctrl+Shift+X`)
+3. Search for **`Sitecore Serialization Viewer`**
+4. Click **Install**
+
 ### From VSIX
 1. Download the latest `.vsix` file from the [Marketplace app page](https://marketplace.visualstudio.com/items?itemName=JagadheeshMaroju.sitecore-serialization-viewer)
-2. In VS Code open the Extensions view (`Ctrl+Shift+X`)
+2. Open the Extensions view (`Ctrl+Shift+X`)
 3. Click the `...` menu → **Install from VSIX…**
 4. Select the downloaded file
 

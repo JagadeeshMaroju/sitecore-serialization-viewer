@@ -5,48 +5,30 @@ import * as yaml from 'yaml';
 import { SitecoreItem, SitecoreField, SitecoreLanguage } from '../models/types';
 
 export class YamlParser {
-    
-    /**
-     * Parse a Sitecore YAML file into a structured object
-     */
+
     public static parseYamlFile(filePath: string): SitecoreItem | null {
         try {
-            const content = fs.readFileSync(filePath, 'utf8');
-            const parsed = yaml.parse(content);
+            const parsed = yaml.parse(fs.readFileSync(filePath, 'utf8'));
+            if (!parsed?.ID) { return null; }
 
-            if (!parsed || !parsed.ID) {
-                return null;
-            }
-
-            const fileName = path.basename(filePath, '.yml');
-            
-            const item: SitecoreItem = {
+            return {
                 id: parsed.ID,
                 parent: parsed.Parent || '',
                 template: parsed.Template || '',
                 path: parsed.Path || '',
                 branchId: parsed.BranchID,
-                filePath: filePath,
-                name: fileName,
+                filePath,
+                name: path.basename(filePath, '.yml'),
                 sharedFields: this.parseFields(parsed.SharedFields),
                 languages: this.parseLanguages(parsed.Languages)
             };
-
-            return item;
-        } catch (error) {
-            console.error(`Error parsing YAML file ${filePath}:`, error);
+        } catch {
             return null;
         }
     }
 
-    /**
-     * Parse shared fields from YAML
-     */
     private static parseFields(fieldsData: any): SitecoreField[] | undefined {
-        if (!fieldsData || !Array.isArray(fieldsData)) {
-            return undefined;
-        }
-
+        if (!Array.isArray(fieldsData)) { return undefined; }
         return fieldsData.map(field => ({
             id: field.ID || '',
             hint: field.Hint || '',
@@ -54,14 +36,8 @@ export class YamlParser {
         }));
     }
 
-    /**
-     * Parse languages and their versions
-     */
     private static parseLanguages(languagesData: any): SitecoreLanguage[] | undefined {
-        if (!languagesData || !Array.isArray(languagesData)) {
-            return undefined;
-        }
-
+        if (!Array.isArray(languagesData)) { return undefined; }
         return languagesData.map(lang => ({
             language: lang.Language || '',
             versions: (lang.Versions || []).map((ver: any) => ({
@@ -71,37 +47,18 @@ export class YamlParser {
         }));
     }
 
-    /**
-     * Normalize field values (handle multi-line strings, etc.)
-     */
     private static normalizeValue(value: any): string {
-        if (value === null || value === undefined) {
-            return '';
-        }
-        
-        if (typeof value === 'string') {
-            return value;
-        }
-
-        return String(value);
+        if (value === null || value === undefined) { return ''; }
+        return typeof value === 'string' ? value : String(value);
     }
 
-    /**
-     * Get all YAML files in serialization directory
-     */
     public static async getAllSerializationFiles(basePath: string): Promise<string[]> {
         const files: string[] = [];
-        
-        const walk = (dir: string) => {
-            if (!fs.existsSync(dir)) {
-                return;
-            }
 
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-            
-            for (const entry of entries) {
+        const walk = (dir: string) => {
+            if (!fs.existsSync(dir)) { return; }
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
                 const fullPath = path.join(dir, entry.name);
-                
                 if (entry.isDirectory()) {
                     walk(fullPath);
                 } else if (entry.isFile() && entry.name.endsWith('.yml')) {
@@ -114,18 +71,10 @@ export class YamlParser {
         return files;
     }
 
-    /**
-     * Get field name by ID using common Sitecore field mappings
-     * Also accepts a hint parameter from the YAML file
-     */
     public static getFieldName(fieldId: string, hint?: string): string {
-        // If hint is provided and not empty, use it
-        if (hint && hint.trim()) {
-            return hint;
-        }
+        if (hint?.trim()) { return hint; }
 
-        // Otherwise fall back to the mapping
-        const fieldMap: { [key: string]: string } = {
+        const fieldMap: Record<string, string> = {
             '25bed78c-4957-4165-998a-ca1b52f67497': '__Created',
             '5dd74568-4d4b-44c1-b513-0af5f4cda34f': '__Created by',
             '8cdc337e-a112-42fb-bbb4-4143751e123f': '__Revision',
@@ -150,21 +99,11 @@ export class YamlParser {
         return fieldMap[fieldId.toLowerCase()] || fieldId;
     }
 
-    /**
-     * Compare two items and return field-level differences
-     */
     public static compareItems(oldItem: SitecoreItem | null, newItem: SitecoreItem | null): any {
-        if (!oldItem && !newItem) {
-            return null;
-        }
+        if (!oldItem && !newItem) { return null; }
 
-        const changes: any = {
-            metadata: {},
-            sharedFields: [],
-            languageFields: []
-        };
+        const changes: any = { metadata: {}, sharedFields: [], languageFields: [] };
 
-        // Compare metadata
         if (oldItem && newItem) {
             if (oldItem.template !== newItem.template) {
                 changes.metadata.template = { old: oldItem.template, new: newItem.template };
@@ -174,18 +113,13 @@ export class YamlParser {
             }
         }
 
-        // Compare shared fields
         if (oldItem?.sharedFields || newItem?.sharedFields) {
             const oldFields = new Map(oldItem?.sharedFields?.map(f => [f.id, f.value]) || []);
             const newFields = new Map(newItem?.sharedFields?.map(f => [f.id, f.value]) || []);
 
-            // Check all fields
-            const allFieldIds = new Set([...oldFields.keys(), ...newFields.keys()]);
-            
-            for (const fieldId of allFieldIds) {
+            for (const fieldId of new Set([...oldFields.keys(), ...newFields.keys()])) {
                 const oldValue = oldFields.get(fieldId);
                 const newValue = newFields.get(fieldId);
-
                 if (oldValue !== newValue) {
                     changes.sharedFields.push({
                         fieldId,

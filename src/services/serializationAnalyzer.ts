@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import simpleGit, { SimpleGit, DiffResult } from 'simple-git';
@@ -53,7 +53,7 @@ export class SerializationAnalyzer {
      * Find the git root directory by searching upward
      */
     private findGitRoot(startPath: string): string {
-        console.log(`🔍 Searching for Git root starting from: ${startPath}`);
+        console.log(` Searching for Git root starting from: ${startPath}`);
         let currentPath = startPath;
         const maxDepth = 5; // Don't go more than 5 levels up
         
@@ -61,19 +61,19 @@ export class SerializationAnalyzer {
             const gitPath = path.join(currentPath, '.git');
             console.log(`  Checking: ${gitPath}`);
             if (fs.existsSync(gitPath)) {
-                console.log(`  ✅ Found git root at: ${currentPath}`);
+                console.log(`   Found git root at: ${currentPath}`);
                 return currentPath;
             }
             
             const parentPath = path.dirname(currentPath);
             if (parentPath === currentPath) {
-                console.log(`  ⚠️  Reached filesystem root`);
+                console.log(`    Reached filesystem root`);
                 break; // Reached filesystem root
             }
             currentPath = parentPath;
         }
         
-        console.log(`  ⚠️  No git root found, using workspace root: ${startPath}`);
+        console.log(`    No git root found, using workspace root: ${startPath}`);
         return startPath;
     }
 
@@ -81,7 +81,7 @@ export class SerializationAnalyzer {
      * Find Serialization folder by searching in multiple locations
      */
     private findSerializationPath(): string {
-        console.log(`🔍 Searching for Serialization folder...`);
+        console.log(` Searching for Serialization folder...`);
         const config = vscode.workspace.getConfiguration('sitecoreSerializer');
         const configPath = config.get<string>('serializationPath');
         
@@ -90,10 +90,10 @@ export class SerializationAnalyzer {
             const fullPath = path.join(this.gitRoot, configPath);
             console.log(`  Checking configured path: ${fullPath}`);
             if (fs.existsSync(fullPath)) {
-                console.log(`  ✅ Using configured serialization path: ${fullPath}`);
+                console.log(`   Using configured serialization path: ${fullPath}`);
                 return fullPath;
             } else {
-                console.log(`  ⚠️  Configured path does not exist`);
+                console.log(`    Configured path does not exist`);
             }
         }
 
@@ -113,7 +113,7 @@ export class SerializationAnalyzer {
         for (const location of searchLocations) {
             console.log(`    Checking: ${location}`);
             if (this.hasModuleJsonFiles(location)) {
-                console.log(`  ✅ Found Serialization folder at: ${location}`);
+                console.log(`   Found Serialization folder at: ${location}`);
                 return location;
             }
         }
@@ -122,13 +122,13 @@ export class SerializationAnalyzer {
         console.log(`  Performing recursive search (max depth: 3)...`);
         const foundPath = this.searchForModuleJson(this.gitRoot, 0, 3);
         if (foundPath) {
-            console.log(`  ✅ Found Serialization folder via recursive search: ${foundPath}`);
+            console.log(`   Found Serialization folder via recursive search: ${foundPath}`);
             return foundPath;
         }
 
         // Fallback to default
         const defaultPath = path.join(this.workspaceRoot, 'Serialization');
-        console.log(`  ⚠️  No Serialization folder found, using default: ${defaultPath}`);
+        console.log(`    No Serialization folder found, using default: ${defaultPath}`);
         return defaultPath;
     }
 

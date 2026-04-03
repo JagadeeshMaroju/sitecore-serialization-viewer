@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+﻿import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -186,7 +186,7 @@ export class SitecoreCLI {
                 console.log(`[SitecoreCLI] connectToEnvironment: ${command}`);
                 const { stdout, stderr } = await execAsync(command, { cwd: this.cliRoot, timeout: 120000 });
                 console.log(`[SitecoreCLI] connectToEnvironment output: ${stdout}${stderr || ''}`);
-                vscode.window.showInformationMessage(`✅ Connected to XM Cloud environment!`);
+                vscode.window.showInformationMessage(` Connected to XM Cloud environment!`);
                 return { success: true };
             });
         } catch (error: any) {
@@ -212,7 +212,7 @@ export class SitecoreCLI {
                 console.log(`[SitecoreCLI] setDefaultEnvironment: ${command}`);
                 const { stdout, stderr } = await execAsync(command, { cwd: this.cliRoot, timeout: 30000 });
                 console.log(`[SitecoreCLI] setDefaultEnvironment output: ${stdout}${stderr || ''}`);
-                vscode.window.showInformationMessage(`✅ "${environmentName}" is now the default environment.`);
+                vscode.window.showInformationMessage(` "${environmentName}" is now the default environment.`);
                 return { success: true };
             });
         } catch (error: any) {
@@ -332,7 +332,7 @@ export class SitecoreCLI {
                 });
 
                 console.log(`[SitecoreCLI] connectToHost output: ${stdout}${stderr || ''}`);
-                vscode.window.showInformationMessage(`✅ Connected to ${cmHost}!`);
+                vscode.window.showInformationMessage(` Connected to ${cmHost}!`);
                 return { success: true };
             });
         } catch (error: any) {
@@ -355,7 +355,7 @@ export class SitecoreCLI {
     public async login(): Promise<{ success: boolean; error?: string }> {
         try {
             const action = await vscode.window.showInformationMessage(
-                '🔐 Sitecore CLI Authentication Required\n\n' +
+                ' Sitecore CLI Authentication Required\n\n' +
                 'Your session has expired. Would you like to login now?\n' +
                 'This will open your browser for authentication.',
                 'Login Now',
@@ -392,7 +392,7 @@ export class SitecoreCLI {
                 if (output.includes('successfully') || 
                     output.includes('authenticated') ||
                     output.includes('logged in')) {
-                    vscode.window.showInformationMessage('✅ Successfully logged in to Sitecore!');
+                    vscode.window.showInformationMessage(' Successfully logged in to Sitecore!');
                     return { success: true };
                 }
 
@@ -441,7 +441,7 @@ export class SitecoreCLI {
                         timeout: 120000
                     });
                     console.log(`[SitecoreCLI] plugin install output: ${stdout}${stderr || ''}`);
-                    vscode.window.showInformationMessage('✅ Sitecore CLI plugins installed. Please retry your action.');
+                    vscode.window.showInformationMessage(' Sitecore CLI plugins installed. Please retry your action.');
                 } catch (err: any) {
                     const errMsg = (err.stdout || '') + (err.stderr || '') + (err.message || '');
                     vscode.window.showErrorMessage(`Plugin install failed: ${errMsg}`);
@@ -449,7 +449,7 @@ export class SitecoreCLI {
             });
         } else if (action === 'Copy Command') {
             await vscode.env.clipboard.writeText('dotnet sitecore plugin install');
-            vscode.window.showInformationMessage('📋 Command copied! Run it in your project root, then retry.');
+            vscode.window.showInformationMessage(' Command copied! Run it in your project root, then retry.');
         }
 
         return true;
@@ -519,7 +519,7 @@ export class SitecoreCLI {
                 console.log(`[SitecoreCLI] Authentication error detected`);
                 
                 vscode.window.showWarningMessage(
-                    `🔐 Authentication required for ${commandName}`
+                    ` Authentication required for ${commandName}`
                 );
 
                 // Prompt to login
@@ -569,7 +569,7 @@ export class SitecoreCLI {
      * Execute sitecore ser pull -t --what-if to preview changes
      */
     public async pullWhatIf(): Promise<WhatIfResult> {
-        vscode.window.showInformationMessage('🔍 Checking what Sitecore has changed...');
+        vscode.window.showInformationMessage(' Checking what Sitecore has changed...');
 
         const result = await this.executeWithAuth(
             'dotnet sitecore ser pull -t --what-if',
@@ -600,7 +600,7 @@ export class SitecoreCLI {
      * Execute sitecore ser push -t --what-if to preview changes
      */
     public async pushWhatIf(): Promise<WhatIfResult> {
-        vscode.window.showInformationMessage('🔍 Checking with Sitecore CLI... This may take a moment.');
+        vscode.window.showInformationMessage(' Checking with Sitecore CLI... This may take a moment.');
 
         const result = await this.executeWithAuth(
             'dotnet sitecore ser push -t --what-if',
@@ -873,7 +873,7 @@ export class SitecoreCLI {
                     timeout: 300000
                 });
 
-                vscode.window.showInformationMessage('✅ Connected to Sitecore Cloud!');
+                vscode.window.showInformationMessage(' Connected to Sitecore Cloud!');
                 return { success: true };
             });
         } catch (error: any) {

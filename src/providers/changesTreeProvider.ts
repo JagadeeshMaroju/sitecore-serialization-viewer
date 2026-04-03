@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import { SerializationAnalyzer } from '../services/serializationAnalyzer';
 import { ItemChange } from '../models/types';
@@ -65,10 +65,10 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
             if (this.isValidation) {
                 const items: TreeItem[] = [];
                 if (this.validationIssues.length === 0) {
-                    items.push(new InfoTreeItem('✅ Serialization is valid — no issues found.', 'info'));
+                    items.push(new InfoTreeItem(' Serialization is valid — no issues found.', 'info'));
                     return items;
                 }
-                items.push(new InfoTreeItem('🔍 Validation Results', 'info'));
+                items.push(new InfoTreeItem(' Validation Results', 'info'));
                 const errors   = this.validationIssues.filter(i => i.severity === 'Error');
                 const warnings = this.validationIssues.filter(i => i.severity === 'Warning');
                 const infos    = this.validationIssues.filter(i => i.severity === 'Info');
@@ -91,7 +91,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
                 const items: TreeItem[] = [];
                 
                 items.push(new InfoTreeItem(
-                    '📥 Sitecore Changes: What will be pulled from Sitecore',
+                    ' Sitecore Changes: What will be pulled from Sitecore',
                     'info'
                 ));
 
@@ -131,7 +131,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<TreeItem> {
                 const items: TreeItem[] = [];
                 
                 items.push(new InfoTreeItem(
-                    '📤 Push Preview: What will be pushed to Sitecore',
+                    ' Push Preview: What will be pushed to Sitecore',
                     'info'
                 ));
 
@@ -303,13 +303,13 @@ class SitecoreFieldTreeItem extends TreeItem {
     constructor(public readonly field: any) {
         const fieldName = field.name || field;
         
-        // Build single-line label: "FieldName: oldValue → newValue"
+        // Build single-line label: "FieldName: oldValue  newValue"
         let label = fieldName;
         if (field.oldValue !== undefined && field.newValue !== undefined) {
             // Truncate long values for display
             const oldPreview = field.oldValue.length > 20 ? field.oldValue.substring(0, 20) + '...' : field.oldValue;
             const newPreview = field.newValue.length > 20 ? field.newValue.substring(0, 20) + '...' : field.newValue;
-            label = `${fieldName}: ${oldPreview} → ${newPreview}`;
+            label = `${fieldName}: ${oldPreview}  ${newPreview}`;
         }
         
         super(label, vscode.TreeItemCollapsibleState.None);
@@ -407,7 +407,7 @@ class FieldTreeItem extends TreeItem {
         const oldPreview = this.truncate(field.oldValue || '(empty)', 50);
         const newPreview = this.truncate(field.newValue || '(empty)', 50);
         
-        this.description = `${oldPreview} → ${newPreview}`;
+        this.description = `${oldPreview}  ${newPreview}`;
         this.tooltip = this.createTooltip();
         this.contextValue = 'field';
         

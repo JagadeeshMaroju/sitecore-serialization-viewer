@@ -39,7 +39,6 @@ export async function activate(context: vscode.ExtensionContext) {
         
         // Log the paths being used
         log(' Paths Discovered:');
-        log(`  Git root:           ${gitRoot}`);
         log(`  CLI root (sitecore.json): ${sitecoreCLI.getCliRoot()}`);
         log(`  Serialization path: ${analyzer.getSerializationPath()}`);
         log('');
